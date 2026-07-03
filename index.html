@@ -322,6 +322,7 @@
     <details class="mapping">
       <summary>Column mapping (auto-detected — adjust if a filter looks wrong)</summary>
       <div id="mappingNotice" style="display:none;background:rgba(255,90,95,0.1);border:1px solid rgba(255,90,95,0.35);color:#ffb3b3;padding:8px 12px;border-radius:7px;font-size:12px;margin-top:10px;"></div>
+      <div id="mappingDiagnostics" style="display:flex;flex-direction:column;gap:5px;margin-top:12px;padding:10px 12px;background:var(--panel);border:1px solid var(--border);border-radius:7px;"></div>
       <div class="mapping-grid">
         <div class="field"><label>Date column</label><select id="mapDate"></select></div>
         <div class="field"><label>Reviewer column</label><select id="mapPerson"></select></div>
@@ -337,7 +338,7 @@
   <div class="kpi-row" id="kpiRow"></div>
 
   <div class="panel">
-    <h2>Daily Workload <span class="tag">VINs reviewed per day, with trend</span></h2>
+    <h2>Daily Workload <span class="tag">VINs reviewed per day</span></h2>
     <div class="chart-box tall"><canvas id="dailyChart"></canvas></div>
   </div>
 
@@ -553,21 +554,33 @@
       const r = guessColumn(h, keywordSets, exclude);
       return r;
     };
+    // Finds a header containing `must` but not any of `mustNot` — more forgiving than
+    // requiring an exact second keyword like "name", since real sheets vary a lot.
+    const pickLoose = (must, mustNot, exclude) => {
+      return h.find(header => {
+        if(exclude && exclude.has(header)) return false;
+        const l = header.toLowerCase();
+        if(!l.includes(must)) return false;
+        return !mustNot.some(x => l.includes(x));
+      }) || null;
+    };
 
     state.map.date = pick([["date"],["day"],["timestamp"]]);
     if(state.map.date) used.add(state.map.date);
 
-    state.map.enterpriseName = pick([["enterprise","name"]]);
+    state.map.enterpriseName = pickLoose("enterprise", ["id"])
+      || pickLoose("company", ["id"]) || pickLoose("client", ["id"]);
     if(state.map.enterpriseName) used.add(state.map.enterpriseName);
 
-    state.map.rooftopName = pick([["rooftop","name"]]);
+    state.map.rooftopName = pickLoose("rooftop", ["id"])
+      || pickLoose("location", ["id"]) || pickLoose("dealer", ["id"]) || pickLoose("store", ["id"]);
     if(state.map.rooftopName) used.add(state.map.rooftopName);
 
     state.map.person = pick([
       ["work","by"],["done","by"],["performed","by"],["handled","by"],["checked","by"],
-      ["completed","by"],["submitted","by"],["processed","by"],
+      ["completed","by"],["submitted","by"],["processed","by"],["reviewed","by"],
       ["reviewer"],["auditor"],["assigned"],["agent"],["analyst"],["employee"],
-      ["owner"],["author"],["user"]
+      ["owner"],["author"],["user"],["staff"],["poc"],["spoc"]
     ], used);
     if(!state.map.person) state.map.person = pick([["name"]], used);
     if(state.map.person) used.add(state.map.person);
@@ -591,6 +604,32 @@
     state.map.impactedVins = impacted || null;
   }
 
+  // Shows, for each mapped field, which real header was picked and a live sample value —
+  // so a wrong guess is obvious at a glance instead of a silently empty chart.
+  function renderMappingDiagnostics(){
+    const box = $("mappingDiagnostics");
+    const sample = (col) => {
+      if(!col) return null;
+      const row = state.rows.find(r => r[col] && String(r[col]).trim() !== "");
+      return row ? row[col] : null;
+    };
+    const fields = [
+      ["Date", state.map.date], ["Reviewer", state.map.person], ["Review type", state.map.type],
+      ["Enterprise", state.map.enterpriseName], ["Rooftop", state.map.rooftopName],
+      ["VINs", state.map.vins], ["Impacted VINs", state.map.impactedVins]
+    ];
+    box.innerHTML = fields.map(([lbl, col]) => {
+      const val = sample(col);
+      const status = col ? (val !== null ? "ok" : "empty") : "missing";
+      const color = status === "ok" ? "var(--teal)" : (status === "empty" ? "var(--coral)" : "var(--text-faint)");
+      const text = col ? `${col} → "${val !== null ? String(val).slice(0,28) : "no data in this column"}"` : "not detected";
+      return `<div style="display:flex;gap:6px;align-items:baseline;font-size:11px;">
+        <span style="color:var(--text-faint);min-width:78px;">${lbl}:</span>
+        <span style="color:${color};font-family:'JetBrains Mono',monospace;">${text}</span>
+      </div>`;
+    }).join("");
+  }
+
   function populateMappingSelectors(){
     const fill = (sel, current) => {
       sel.innerHTML = `<option value="">— none —</option>` + state.headers.map(h => `<option value="${h}" ${h===current?"selected":""}>${h}</option>`).join("");
@@ -606,20 +645,30 @@
 
   function checkMappingHealth(){
     const missing = [];
-    if(!state.map.date) missing.push("Date");
-    if(!state.map.person) missing.push("Reviewer");
-    if(!state.map.type) missing.push("Review type");
-    if(!state.map.enterpriseName) missing.push("Enterprise name");
-    if(!state.map.rooftopName) missing.push("Rooftop name");
-    if(!state.map.vins) missing.push("VINs");
+    const empty = [];
+    const checks = [
+      ["Date", "date"], ["Reviewer", "person"], ["Review type", "type"],
+      ["Enterprise", "enterpriseName"], ["Rooftop", "rooftopName"], ["VINs", "vins"]
+    ];
+    checks.forEach(([label, key]) => {
+      const col = state.map[key];
+      if(!col){ missing.push(label); return; }
+      const hasData = state.rows.some(r => r[col] && String(r[col]).trim() !== "");
+      if(!hasData) empty.push(`${label} ("${col}")`);
+    });
+
     const notice = $("mappingNotice");
-    if(missing.length){
+    if(missing.length || empty.length){
       notice.style.display = "block";
-      notice.textContent = `Couldn't confidently detect: ${missing.join(", ")}. Pick the right column${missing.length>1?"s":""} below.`;
+      const parts = [];
+      if(missing.length) parts.push(`couldn't detect: ${missing.join(", ")}`);
+      if(empty.length) parts.push(`mapped but no data found in: ${empty.join(", ")}`);
+      notice.textContent = `Heads up — ${parts.join("; ")}. Check the sample values below and pick the right column.`;
       document.querySelector("details.mapping").open = true;
     }else{
       notice.style.display = "none";
     }
+    renderMappingDiagnostics();
   }
 
   function setSyncing(on, success){
@@ -901,15 +950,14 @@
     });
     const dateKeys = Object.keys(byDate).sort();
     const values = dateKeys.map(dk => byDate[dk]);
-    const trend = movingAverage(values, Math.min(3, values.length || 1));
 
     const ctx = document.getElementById("dailyChart").getContext("2d");
     state.charts.daily = new Chart(ctx, {
+      type: "bar",
       data: {
         labels: dateKeys.map(dk => new Date(dk).toLocaleDateString(undefined,{month:"short",day:"numeric"})),
         datasets: [
-          { type:"bar", label:"VINs / day", data: values, backgroundColor:"#ff9e2c", borderRadius:4, maxBarThickness:28, order:2 },
-          { type:"line", label:"Trend (3-day avg)", data: trend, borderColor:"#33c7b0", backgroundColor:"transparent", borderWidth:2.5, tension:0.35, pointRadius:2, pointBackgroundColor:"#33c7b0", order:1 }
+          { label:"VINs / day", data: values, backgroundColor:"#ff9e2c", borderRadius:4, maxBarThickness:32 }
         ]
       },
       options: {
