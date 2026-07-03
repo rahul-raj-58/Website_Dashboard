@@ -6,8 +6,6 @@
 <title>Rooftop Review Ops — Workload &amp; Performance</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 <style>
   :root{
     --bg:#0a0d12;
@@ -321,6 +319,36 @@
 (function(){
   "use strict";
 
+  // ---------- LIBRARY LOADER (tries multiple CDNs, tolerates one being blocked) ----------
+  function loadScript(url){
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = url;
+      s.onload = () => resolve(url);
+      s.onerror = () => reject(new Error("failed: " + url));
+      document.head.appendChild(s);
+    });
+  }
+  async function loadFirstWorking(urls){
+    for(const url of urls){
+      try{ await loadScript(url); return true; }catch(e){ /* try next source */ }
+    }
+    return false;
+  }
+  const LIB_SOURCES = {
+    papa: [
+      "https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js",
+      "https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js",
+      "https://unpkg.com/papaparse@5.4.1/papaparse.min.js"
+    ],
+    chart: [
+      "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js",
+      "https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js",
+      "https://unpkg.com/chart.js@4.4.4/dist/chart.umd.min.js"
+    ]
+  };
+  let papaReady = false, chartReady = false;
+
   // ---------- CONFIG ----------
   const SHEET_KEY = "2PACX-1vRl_3g25PgrDGOBIcwKh_U7IIowogVtUFmmqtUKnLUKR2S4zxjkly29RUD9_T8I_tvZ5Mam5Y9RqKFF";
   const GID = "421286318";
@@ -395,6 +423,8 @@
   async function fetchData(isManual){
     setSyncing(true);
     try{
+      if(!papaReady) papaReady = await loadFirstWorking(LIB_SOURCES.papa);
+      if(!papaReady) throw new Error("CSV parser library failed to load from all sources");
       const res = await fetch(CSV_URL + (CSV_URL.includes("?") ? "&" : "?") + "cachebust=" + Date.now());
       if(!res.ok) throw new Error("HTTP " + res.status);
       const text = await res.text();
@@ -557,7 +587,21 @@
   // ---------- CHARTS ----------
   function destroyChart(key){ if(state.charts[key]){ state.charts[key].destroy(); delete state.charts[key]; } }
 
+  function chartsUnavailableNotice(canvasId){
+    const canvas = document.getElementById(canvasId);
+    if(!canvas) return;
+    const box = canvas.parentElement;
+    if(box.querySelector(".chart-fallback-note")) return;
+    const note = document.createElement("div");
+    note.className = "chart-fallback-note";
+    note.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:12.5px;text-align:center;padding:20px;";
+    note.textContent = "Charts couldn't load (network to CDN blocked). Filters, KPIs and tables below still work.";
+    canvas.style.display = "none";
+    box.appendChild(note);
+  }
+
   function renderDailyChart(){
+    if(!chartReady){ chartsUnavailableNotice("dailyChart"); return; }
     destroyChart("daily");
     const dateCol = state.map.date, personCol = state.map.person;
     if(!dateCol || !personCol) return;
@@ -599,6 +643,7 @@
   }
 
   function renderLeaderboard(){
+    if(!chartReady){ chartsUnavailableNotice("leaderChart"); return; }
     destroyChart("leader");
     const personCol = state.map.person;
     if(!personCol) return;
@@ -625,6 +670,7 @@
   }
 
   function renderTypeChart(){
+    if(!chartReady){ chartsUnavailableNotice("typeChart"); return; }
     destroyChart("type");
     const typeCol = state.map.type;
     if(!typeCol) return;
@@ -771,6 +817,10 @@
   $("nextPage").addEventListener("click", () => { state.page++; renderTable(); });
 
   // ---------- BOOT ----------
+  loadFirstWorking(LIB_SOURCES.chart).then(ok => {
+    chartReady = ok;
+    if(ok) applyFiltersAndRender(); // re-render so charts populate once the library arrives
+  });
   fetchData(false);
   refreshTimer = setInterval(() => fetchData(false), REFRESH_MS);
 })();
