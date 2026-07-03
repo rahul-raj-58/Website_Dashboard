@@ -199,12 +199,19 @@
   tr.clickable-row:hover{ border-radius:0; transform:none; }
   tr.clickable-row:hover td:first-child{ box-shadow:inset 3px 0 0 var(--teal); }
 
-  .perf-list{ display:flex; flex-direction:column; gap:10px; margin-top:6px; }
-  .perf-item{ display:flex; align-items:center; gap:12px; }
-  .perf-item .name{ width:110px; font-size:12.5px; font-weight:500; flex-shrink:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .perf-bar-track{ flex:1; height:8px; background:var(--surface-2); border-radius:5px; overflow:hidden; }
+  .perf-list{ display:flex; flex-direction:column; margin-top:6px; }
+  .perf-row{
+    display:grid; grid-template-columns:110px 1fr auto; align-items:center; gap:16px;
+    padding:11px 4px; border-bottom:1px solid var(--border-soft);
+  }
+  .perf-row:last-child{ border-bottom:none; padding-bottom:2px; }
+  .perf-row:first-child{ padding-top:2px; }
+  .perf-name{ font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .perf-bar-track{ height:7px; background:var(--surface-2); border-radius:5px; overflow:hidden; margin-top:7px; }
   .perf-bar-fill{ height:100%; border-radius:5px; background:linear-gradient(90deg, var(--teal), var(--violet)); }
-  .perf-item .num{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); width:96px; text-align:right; flex-shrink:0; }
+  .perf-stats{ text-align:right; flex-shrink:0; }
+  .perf-stat-main{ font-family:var(--mono); font-size:13px; font-weight:600; color:var(--text); white-space:nowrap; }
+  .perf-stat-sub{ font-family:var(--mono); font-size:10.5px; color:var(--text-faint); margin-top:4px; white-space:nowrap; }
 
   .lb-rank{
     width:26px; height:26px; border-radius:50%; flex-shrink:0;
@@ -393,6 +400,19 @@
       </div>
     </div>
 
+    <div class="card" style="grid-column:1 / -1; --card-accent:#4fb8e8;">
+      <div class="card-head">
+        <div>
+          <h2>QC frequency by enterprise</h2>
+          <div class="hint" id="qcFreqHint">Daily count of tasks with review type "QC", one line per enterprise — click a line or legend entry to filter</div>
+        </div>
+      </div>
+      <div class="chart-box" style="height:300px;">
+        <canvas id="qcFreqChart"></canvas>
+        <div class="empty-state" id="qcFreqChartEmpty" style="display:none; position:absolute; inset:0; align-items:center; justify-content:center;"></div>
+      </div>
+    </div>
+
     <div class="card" style="grid-column:1 / -1; --card-accent:#c98cff;">
       <div class="card-head">
         <div>
@@ -535,7 +555,7 @@ let libStatus = { papa:false, chart:false, flatpickr:false };
 ========================================================= */
 let rawRows = [];        // all parsed rows
 let lastSyncTime = null;
-let charts = { workload:null, reviewEffort:null };
+let charts = { workload:null, reviewEffort:null, qcFrequency:null };
 let factorMap = {};       // reviewType (lowercased) -> factor seconds
 let factorRawRows = [];   // raw parsed rows from the factor sheet, for diagnostics
 let factorSheetError = null;
@@ -863,7 +883,7 @@ function getFilteredRows(opts={}){
   const person = opts.ignorePerson ? '' : document.getElementById('personFilter').value;
   const enterprise = document.getElementById('enterpriseFilter').value;
   const rooftop = document.getElementById('rooftopFilter').value;
-  const review = document.getElementById('reviewFilter').value;
+  const review = opts.ignoreReview ? '' : document.getElementById('reviewFilter').value;
   let start = null, end = null;
   if(fp && fp.selectedDates.length === 2){
     start = stripTime(fp.selectedDates[0]);
@@ -927,6 +947,7 @@ function renderAll(){
   renderWorkloadChart(rows);
   renderPerformance(rows);
   renderReviewEffortChart(rows);
+  renderQcFrequencyChart();
   renderEffortTable(rows);
   renderLeaderboard(rows);
   renderTable(rows);
@@ -1065,6 +1086,104 @@ function setDateRangeToSingleDay(iso){
   fp.setDate([d, d], true); // true = fire onChange -> renderAll
 }
 
+/* ---------- QC frequency by enterprise, daily trend ---------- */
+function renderQcFrequencyChart(){
+  const hintEl = document.getElementById('qcFreqHint');
+  const ctx = document.getElementById('qcFreqChart');
+  if(typeof Chart === 'undefined'){
+    renderEmptyCanvas(ctx, 'Chart library unavailable — try Sync now, or reload the page');
+    return;
+  }
+
+  // Always scoped to review type "QC" specifically, regardless of the top Review Type filter —
+  // this card answers one fixed question (how often QC happens, by enterprise), so forcing that
+  // filter avoids a confusing empty chart if someone has a different review type selected above.
+  const base = getFilteredRows({ ignoreReview:true }).filter(r => r.date && normalizeKey(r.reviewType) === 'qc');
+
+  if(!base.length){
+    if(hintEl) hintEl.textContent = "No rows with review type \"QC\" in the current filters (date range / enterprise / rooftop / person still apply)";
+    renderEmptyCanvas(ctx, 'No QC activity in the current filters');
+    return;
+  }
+
+  // Count QC rows per day per enterprise; keep the top 8 enterprises by total volume, group the rest as "Other"
+  const totalsByEnterprise = {};
+  base.forEach(r=>{ totalsByEnterprise[r.enterprise] = (totalsByEnterprise[r.enterprise]||0) + 1; });
+  const topEnterprises = Object.entries(totalsByEnterprise).sort((a,b)=>b[1]-a[1]).slice(0,8).map(e=>e[0]);
+  const hasOther = Object.keys(totalsByEnterprise).length > topEnterprises.length;
+
+  const byDateEnterprise = {};
+  base.forEach(r=>{
+    const day = isoDate(r.date);
+    const series = topEnterprises.includes(r.enterprise) ? r.enterprise : 'Other';
+    byDateEnterprise[day] = byDateEnterprise[day] || {};
+    byDateEnterprise[day][series] = (byDateEnterprise[day][series]||0) + 1;
+  });
+
+  const dates = Object.keys(byDateEnterprise).sort();
+  const seriesNames = hasOther ? [...topEnterprises, 'Other'] : topEnterprises;
+  const labels = dates.map(d=>fmtDate(new Date(d)));
+
+  if(hintEl){
+    hintEl.textContent = `${base.length} QC task(s) across ${Object.keys(totalsByEnterprise).length} enterprise(s) — click a line or legend entry to filter by enterprise`;
+  }
+
+  document.getElementById('qcFreqChartEmpty').style.display = 'none';
+  ctx.style.cursor = 'pointer';
+  if(charts.qcFrequency) charts.qcFrequency.destroy();
+
+  charts.qcFrequency = new Chart(ctx, {
+    type:'line',
+    data:{
+      labels,
+      datasets: seriesNames.map((name,i)=>({
+        label:name,
+        data: dates.map(d => (byDateEnterprise[d][name] || 0)),
+        borderColor: name === 'Other' ? '#5c6478' : colorFor(name,i),
+        backgroundColor:'transparent',
+        borderWidth:2, pointRadius:2.5, tension:.3,
+        pointBackgroundColor: name === 'Other' ? '#5c6478' : colorFor(name,i)
+      }))
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      onClick:(evt, elements, chart)=>{
+        const points = chart.getElementsAtEventForMode(evt, 'nearest', { intersect:true }, false);
+        if(!points.length) return;
+        const name = chart.data.datasets[points[0].datasetIndex].label;
+        applyQcEnterpriseFilter(name);
+      },
+      plugins:{
+        legend:{
+          position:'bottom', labels:{ color:'#99a1b8', font:{ size:11, family:'Inter' }, boxWidth:9, boxHeight:9, padding:12 },
+          onClick:(evt, legendItem)=> applyQcEnterpriseFilter(legendItem.text)
+        },
+        tooltip:{
+          backgroundColor:'#171c27', borderColor:'#232a39', borderWidth:1,
+          titleColor:'#e7eaf2', bodyColor:'#99a1b8', padding:10,
+          titleFont:{ family:'JetBrains Mono', size:11 }, bodyFont:{ family:'Inter', size:12 }
+        }
+      },
+      scales:{
+        x:{ grid:{ color:'rgba(255,255,255,0.03)' }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' }, maxRotation:0, autoSkip:true } },
+        y:{ grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' } }, beginAtZero:true, title:{ display:true, text:'QC tasks / day', color:'#5c6478', font:{ size:10, family:'JetBrains Mono' } } }
+      }
+    }
+  });
+}
+
+function applyQcEnterpriseFilter(enterpriseName){
+  if(enterpriseName === 'Other') return; // not a real, selectable enterprise
+  const sel = document.getElementById('enterpriseFilter');
+  const opt = [...sel.options].find(o=>o.value === enterpriseName);
+  if(!opt) return;
+  sel.value = enterpriseName;
+  const qcOpt = [...document.getElementById('reviewFilter').options].find(o=>normalizeKey(o.value) === 'qc');
+  if(qcOpt) document.getElementById('reviewFilter').value = qcOpt.value;
+  renderAll();
+}
+
 function baseChartOptions(){
   return {
     responsive:true, maintainAspectRatio:false,
@@ -1191,10 +1310,15 @@ function renderPerformance(rows){
   const el = document.getElementById('perfList');
   if(!list.length){ el.innerHTML = '<div class="empty-state">No activity in this range</div>'; return; }
   el.innerHTML = list.slice(0,8).map(([name, d], i)=>`
-    <div class="perf-item clickable-row" data-person="${escapeHtml(name)}" title="Filter by ${escapeHtml(name)}">
-      <div class="name" title="${escapeHtml(name)}">${name}</div>
-      <div class="perf-bar-track"><div class="perf-bar-fill" style="width:${Math.max(4,(d.vins/max*100))}%; background:${colorFor(name,i)}"></div></div>
-      <div class="num">${d.vins} VINs · ${d.tasks} tasks</div>
+    <div class="perf-row clickable-row" data-person="${escapeHtml(name)}" title="Filter by ${escapeHtml(name)}">
+      <div class="perf-person">
+        <div class="perf-name" title="${escapeHtml(name)}">${name}</div>
+        <div class="perf-bar-track"><div class="perf-bar-fill" style="width:${Math.max(4,(d.vins/max*100))}%; background:${colorFor(name,i)}"></div></div>
+      </div>
+      <div class="perf-stats">
+        <div class="perf-stat-main">${d.vins.toLocaleString()} VINs</div>
+        <div class="perf-stat-sub">${d.tasks} ${d.tasks === 1 ? 'task' : 'tasks'}</div>
+      </div>
     </div>
   `).join('');
 }
