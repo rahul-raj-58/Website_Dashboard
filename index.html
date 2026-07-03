@@ -814,8 +814,11 @@
       notice.style.display = "block";
       const parts = [];
       if(missing.length) parts.push(`couldn't detect: ${missing.join(", ")}`);
-      if(empty.length) parts.push(`mapped but no data found in: ${empty.join(", ")}`);
-      notice.textContent = `Heads up — ${parts.join("; ")}. Check the sample values below and pick the right column.`;
+      if(empty.length){
+        notice.innerHTML = `Heads up — mapped correctly, but the published export has no values in: <b>${empty.join(", ")}</b>. This is not a dashboard bug — Google's "Publish to web" export is sending back blank cells for these columns even though they're filled in the sheet. This almost always means those cells are populated by a formula (VLOOKUP, IMPORTRANGE, a cross-sheet lookup, etc.) that doesn't evaluate in the public export. <b>Fix:</b> select those columns in the sheet → Copy → Paste Special → "Values only" (over themselves) → File → Share → Publish to web → Republish now → then hit Sync here.${missing.length ? ` Also couldn't detect: ${missing.join(", ")}.` : ""}`;
+      }else{
+        notice.textContent = `Heads up — couldn't detect: ${missing.join(", ")}. Check the sample values below and pick the right column.`;
+      }
       document.querySelector("details.mapping").open = true;
     }else{
       notice.style.display = "none";
