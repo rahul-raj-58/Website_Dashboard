@@ -1087,7 +1087,7 @@ function renderPerformance(rows){
 
 /* ---------- Daily leaderboard: ranked by VINs × Factor for a single selected day ---------- */
 function populateLeaderboardDates(){
-  const base = getFilteredRows({ ignorePerson:true }).filter(r=>r.date);
+  const base = getFilteredRows().filter(r=>r.date);
   const dates = [...new Set(base.map(r=>isoDate(r.date)))].sort();
   const sel = document.getElementById('lbDateSelect');
   const prevValue = leaderboardDate;
@@ -1127,7 +1127,7 @@ function renderLeaderboard(){
     return;
   }
 
-  const dayRows = getFilteredRows({ ignorePerson:true }).filter(r => r.date && isoDate(r.date) === leaderboardDate);
+  const dayRows = getFilteredRows().filter(r => r.date && isoDate(r.date) === leaderboardDate);
   if(!dayRows.length){
     listEl.innerHTML = '<div class="empty-state">No activity on this day</div>';
     summaryEl.textContent = '';
