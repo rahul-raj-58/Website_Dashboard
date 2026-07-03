@@ -497,14 +497,29 @@
   const syncBtn = $("syncBtn"), errorBanner = $("errorBanner"), errorText = $("errorText");
 
   // ---------- UTIL ----------
+  function countFilled(header){
+    if(!header) return 0;
+    return state.rows.reduce((n,r) => n + (r[header] && String(r[header]).trim() !== "" ? 1 : 0), 0);
+  }
+
+  function bestByFillRate(candidates){
+    if(candidates.length <= 1) return candidates[0] || null;
+    let best = candidates[0], bestCount = -1;
+    candidates.forEach(c => {
+      const n = countFilled(c);
+      if(n > bestCount){ bestCount = n; best = c; }
+    });
+    return best;
+  }
+
   function guessColumn(headers, keywordSets, exclude){
     for(const kws of keywordSets){
-      const hit = headers.find(h => {
+      const candidates = headers.filter(h => {
         if(exclude && exclude.has(h)) return false;
         const low = h.toLowerCase();
         return kws.every(k => low.includes(k));
       });
-      if(hit) return hit;
+      if(candidates.length) return bestByFillRate(candidates);
     }
     return null;
   }
@@ -682,12 +697,13 @@
     // Finds a header containing `must` but not any of `mustNot` — more forgiving than
     // requiring an exact second keyword like "name", since real sheets vary a lot.
     const pickLoose = (must, mustNot, exclude) => {
-      return h.find(header => {
+      const candidates = h.filter(header => {
         if(exclude && exclude.has(header)) return false;
         const l = header.toLowerCase();
         if(!l.includes(must)) return false;
         return !mustNot.some(x => l.includes(x));
-      }) || null;
+      });
+      return bestByFillRate(candidates);
     };
 
     state.map.date = pick([["date"],["day"],["timestamp"]]);
@@ -714,16 +730,16 @@
     if(state.map.type) used.add(state.map.type);
 
     // VINs / Impacted VINs — need special exclusion logic since both contain "vin"
-    let impacted = h.find(header => {
+    let impacted = bestByFillRate(h.filter(header => {
       const l = header.toLowerCase();
       return l.includes("vin") && (l.includes("impact") || l.includes("imapact"));
-    });
-    let vins = h.find(header => header.trim().toLowerCase() === "vins" && header !== impacted);
+    }));
+    let vins = bestByFillRate(h.filter(header => header.trim().toLowerCase() === "vins" && header !== impacted));
     if(!vins){
-      vins = h.find(header => {
+      vins = bestByFillRate(h.filter(header => {
         const l = header.toLowerCase();
         return l.includes("vin") && header !== impacted && !l.includes("id");
-      });
+      }));
     }
     state.map.vins = vins || null;
     state.map.impactedVins = impacted || null;
