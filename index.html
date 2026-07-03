@@ -135,7 +135,7 @@
   /* ---------- Layout ---------- */
   .wrap{ padding:26px 32px; display:flex; flex-direction:column; gap:22px; }
 
-  .kpi-row{ display:grid; grid-template-columns:repeat(5, 1fr); gap:16px; }
+  .kpi-row{ display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:16px; }
   .kpi{
     background:var(--surface); border:1px solid var(--border-soft); border-radius:var(--radius-lg);
     padding:18px 20px; position:relative; overflow:hidden;
@@ -335,6 +335,43 @@
     <div class="card" style="grid-column:1 / -1;">
       <div class="card-head">
         <div>
+          <h2>Effort factor by review type</h2>
+          <div class="hint" id="factorHint">Factor (seconds) per review type, from the effort-factor reference sheet</div>
+        </div>
+      </div>
+      <div class="chart-box small">
+        <canvas id="factorChart"></canvas>
+        <div class="empty-state" id="factorChartEmpty" style="display:none; position:absolute; inset:0; align-items:center; justify-content:center;"></div>
+      </div>
+    </div>
+
+    <div class="card" style="grid-column:1 / -1;">
+      <div class="card-head">
+        <div>
+          <h2>Performance by person — effort weighted</h2>
+          <div class="hint">Estimated effort = Σ factor(review type) across each person's tasks — click headers to sort</div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="effortTable">
+          <thead>
+            <tr>
+              <th data-key="person">Person <span class="arrow"></span></th>
+              <th data-key="tasks">Tasks <span class="arrow"></span></th>
+              <th data-key="vins">VINs <span class="arrow"></span></th>
+              <th data-key="effortHrs">Est. effort (hrs) <span class="arrow"></span></th>
+              <th data-key="effortPerTask">Avg sec / task <span class="arrow"></span></th>
+              <th data-key="unmapped">Unmapped tasks <span class="arrow"></span></th>
+            </tr>
+          </thead>
+          <tbody id="effortTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" style="grid-column:1 / -1;">
+      <div class="card-head">
+        <div>
           <h2>Daily task log</h2>
           <div class="hint">One row per person, per day — click headers to sort</div>
         </div>
@@ -349,6 +386,7 @@
               <th data-key="vins">VINs <span class="arrow"></span></th>
               <th data-key="impacted">Impacted VINs <span class="arrow"></span></th>
               <th data-key="topReview">Top review type <span class="arrow"></span></th>
+              <th data-key="effortMin">Est. effort (min) <span class="arrow"></span></th>
             </tr>
           </thead>
           <tbody id="perfTableBody"></tbody>
@@ -381,6 +419,7 @@
    CONFIG
 ========================================================= */
 const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRl_3g25PgrDGOBIcwKh_U7IIowogVtUFmmqtUKnLUKR2S4zxjkly29RUD9_T8I_tvZ5Mam5Y9RqKFF/pub?gid=421286318&single=true&output=csv";
+const FACTOR_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRl_3g25PgrDGOBIcwKh_U7IIowogVtUFmmqtUKnLUKR2S4zxjkly29RUD9_T8I_tvZ5Mam5Y9RqKFF/pub?gid=1842020658&single=true&output=csv";
 const RESYNC_MS = 30 * 60 * 1000; // 30 minutes
 
 const PALETTE = ['#35d0a0', '#8c93ff', '#f0a740', '#ef6a6a', '#4fb8e8', '#c98cff', '#e0c25a', '#6de0c2'];
@@ -448,7 +487,11 @@ let libStatus = { papa:false, chart:false, flatpickr:false };
 ========================================================= */
 let rawRows = [];        // all parsed rows
 let lastSyncTime = null;
-let charts = { workload:null, review:null };
+let charts = { workload:null, review:null, factor:null };
+let factorMap = {};       // reviewType (lowercased) -> factor seconds
+let factorRawRows = [];   // raw parsed rows from the factor sheet, for diagnostics
+let factorSheetError = null;
+let effortSort = { key:'effortHrs', dir:'desc' };
 let sort = { key:'date', dir:'desc' };
 let fp = null;
 
@@ -514,6 +557,11 @@ function countVins(field){
   const tokens = s.split(/[,;\n]+/).map(t=>t.trim()).filter(Boolean);
   return tokens.length;
 }
+function normalizeKey(s){ return (s||'').trim().toLowerCase(); }
+function factorFor(reviewType){
+  const k = normalizeKey(reviewType);
+  return Object.prototype.hasOwnProperty.call(factorMap, k) ? factorMap[k] : null;
+}
 
 /* =========================================================
    FETCH + PARSE
@@ -548,6 +596,10 @@ async function fetchData(isManual){
     return;
   }
 
+  // --- Phase 1.5: fetch the effort-factor reference sheet. Non-fatal — the main
+  // dashboard works without it, it just won't have effort-weighted metrics. ---
+  await fetchFactorSheet();
+
   // --- Phase 2: render. Failures here (e.g. a chart library that didn't load) are display
   // issues, not sync issues — the data itself is fine, so we never overwrite sync status here. ---
   try{
@@ -563,6 +615,37 @@ async function fetchData(isManual){
     document.getElementById('debugPanel').classList.add('show');
   }
   btn.classList.remove('spinning');
+}
+
+async function fetchFactorSheet(){
+  try{
+    const res = await fetch(FACTOR_CSV_URL + (FACTOR_CSV_URL.includes('?') ? '&' : '?') + 'cachebust=' + Date.now());
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const csvText = await res.text();
+    const parsed = Papa.parse(csvText, { header:true, skipEmptyLines:true });
+    const map = {};
+    parsed.data.forEach(r=>{
+      const get = (...names) => {
+        for(const n of names){
+          for(const k of Object.keys(r)){
+            if(k.trim().toLowerCase() === n.toLowerCase()) return r[k];
+          }
+        }
+        return '';
+      };
+      const rt = String(get('Review Type') || '').trim();
+      const rawFactor = get('Factor (Second)', 'Factor (Seconds)', 'Factor(Second)', 'Factor');
+      const factor = parseFloat(String(rawFactor).replace(/[^0-9.\-]/g, ''));
+      if(rt) map[normalizeKey(rt)] = isNaN(factor) ? 0 : factor;
+    });
+    factorMap = map;
+    factorRawRows = parsed.data;
+    factorSheetError = null;
+  }catch(err){
+    console.error('Factor sheet fetch failed:', err);
+    factorSheetError = err.message || String(err);
+    // keep any previously-loaded factorMap rather than wiping it on a transient failure
+  }
 }
 
 function normalizeRows(data){
@@ -659,6 +742,11 @@ function updateDiagnostics(parsed){
     ${invalidDateRows.length ? `<div>Sample raw date values:</div><pre>${escapeHtml(invalidDateRows.slice(0,5).map(r=>JSON.stringify(r.dateRaw)).join(', '))}</pre>` : ''}
     <div>First raw row from the sheet:</div>
     <pre>${escapeHtml(JSON.stringify(parsed.data[0] || {}, null, 2))}</pre>
+    <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border-soft);">Factor reference sheet:
+      ${factorSheetError
+        ? `<span style="color:var(--red)">${escapeHtml(factorSheetError)}</span>`
+        : `<b>${Object.keys(factorMap).length}</b> review type(s) mapped`}
+    </div>
   `;
   // auto-open only if something looks wrong
   if(rawRows.length === 0 || invalidDateRows.length > 0){
@@ -756,6 +844,8 @@ function renderAll(){
   renderWorkloadChart(rows);
   renderReviewChart(rows);
   renderPerformance(rows);
+  renderFactorChart(rows);
+  renderEffortTable(rows);
   renderTable(rows);
 }
 
@@ -767,12 +857,25 @@ function renderKPIs(rows){
   const people = new Set(rows.map(r=>r.person)).size;
   const avg = totalTasks ? (totalVins/totalTasks).toFixed(1) : '0';
 
+  let totalEffortSec = 0, unmappedCount = 0;
+  const unmappedTypes = new Set();
+  rows.forEach(r=>{
+    const f = factorFor(r.reviewType);
+    if(f === null){ unmappedCount++; unmappedTypes.add(r.reviewType); }
+    else totalEffortSec += f;
+  });
+  const totalEffortHrs = (totalEffortSec/3600).toFixed(1);
+  const effortSub = Object.keys(factorMap).length === 0
+    ? 'Factor sheet not loaded'
+    : (unmappedCount ? `${unmappedTypes.size} review type(s) unmapped` : 'all review types mapped');
+
   const cards = [
     { label:'Total VINs processed', value: totalVins.toLocaleString(), sub: rows.length + ' review rows', accent:'var(--teal)' },
     { label:'Impacted VINs', value: totalImpacted.toLocaleString(), sub: totalVins ? ((totalImpacted/totalVins*100).toFixed(1)+'% of VINs') : '—', accent:'var(--amber)' },
     { label:'Tasks (rows)', value: totalTasks.toLocaleString(), sub:'in selected range', accent:'var(--violet)' },
     { label:'Active reviewers', value: people, sub:'people with activity', accent:'#4fb8e8' },
     { label:'Avg VINs / task', value: avg, sub:'workload density', accent:'#ef6a6a' },
+    { label:'Est. effort (hrs)', value: totalEffortHrs, sub: effortSub, accent:'#c98cff' },
   ];
   document.getElementById('kpiRow').innerHTML = cards.map(c=>`
     <div class="kpi" style="--kpi-accent:${c.accent}">
@@ -918,6 +1021,138 @@ function renderPerformance(rows){
   `).join('');
 }
 
+/* ---------- Effort factor by review type (from the Factor reference sheet) ---------- */
+function renderFactorChart(rows){
+  const hintEl = document.getElementById('factorHint');
+  const ctx = document.getElementById('factorChart');
+
+  if(factorSheetError && Object.keys(factorMap).length === 0){
+    if(hintEl) hintEl.textContent = 'Factor sheet could not be loaded: ' + factorSheetError;
+    renderEmptyCanvas(ctx, 'Factor reference sheet unavailable');
+    return;
+  }
+  if(Object.keys(factorMap).length === 0){
+    if(hintEl) hintEl.textContent = 'No factor data loaded yet';
+    renderEmptyCanvas(ctx, 'No factor data loaded yet');
+    return;
+  }
+  if(typeof Chart === 'undefined'){
+    renderEmptyCanvas(ctx, 'Chart library unavailable — try Sync now, or reload the page');
+    return;
+  }
+
+  // Show every review type present either in the factor sheet or in the current filtered rows
+  const typesInView = new Set(rows.map(r=>r.reviewType));
+  const allKeys = new Set([...Object.keys(factorMap), ...[...typesInView].map(normalizeKey)]);
+  const labelFor = {};
+  rows.forEach(r=> labelFor[normalizeKey(r.reviewType)] = r.reviewType);
+  factorRawRows.forEach(r=>{
+    const rt = r['Review Type'] || r['review type'];
+    if(rt) labelFor[normalizeKey(rt)] = String(rt).trim();
+  });
+
+  const entries = [...allKeys]
+    .map(k => ({ label: labelFor[k] || k, factor: factorMap[k] ?? null }))
+    .filter(e => e.factor !== null)
+    .sort((a,b)=> b.factor - a.factor);
+
+  const unmapped = [...typesInView].filter(t => factorFor(t) === null);
+  if(hintEl){
+    hintEl.textContent = unmapped.length
+      ? `Factor (seconds) per review type · unmapped in current view: ${unmapped.join(', ')}`
+      : 'Factor (seconds) per review type, from the effort-factor reference sheet';
+  }
+
+  if(!entries.length){ renderEmptyCanvas(ctx, 'No matching review types found'); return; }
+  document.getElementById('factorChartEmpty').style.display = 'none';
+
+  if(charts.factor) charts.factor.destroy();
+  charts.factor = new Chart(ctx, {
+    type:'bar',
+    data:{
+      labels: entries.map(e=>e.label),
+      datasets:[{
+        label:'Factor (sec)', data: entries.map(e=>e.factor),
+        backgroundColor: entries.map((e,i)=>colorFor(e.label,i)),
+        borderRadius:5, maxBarThickness:34
+      }]
+    },
+    options:{
+      ...baseChartOptions(),
+      indexAxis:'y',
+      plugins:{ ...baseChartOptions().plugins },
+      scales:{
+        x:{ grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' } }, beginAtZero:true },
+        y:{ grid:{ display:false }, ticks:{ color:'#99a1b8', font:{ size:11.5, family:'Inter' } } }
+      }
+    }
+  });
+}
+
+/* ---------- Performance by person, effort-weighted ---------- */
+function computeEffortByPerson(rows){
+  const byPerson = {};
+  rows.forEach(r=>{
+    byPerson[r.person] = byPerson[r.person] || { tasks:0, vins:0, effortSec:0, unmapped:0 };
+    const p = byPerson[r.person];
+    p.tasks += 1;
+    p.vins += r.vins;
+    const f = factorFor(r.reviewType);
+    if(f === null) p.unmapped += 1; else p.effortSec += f;
+  });
+  return Object.entries(byPerson).map(([person, d]) => ({
+    person,
+    tasks: d.tasks,
+    vins: d.vins,
+    unmapped: d.unmapped,
+    effortHrs: +(d.effortSec/3600).toFixed(2),
+    effortPerTask: d.tasks ? Math.round(d.effortSec/d.tasks) : 0
+  }));
+}
+
+function renderEffortTable(rows){
+  const list = computeEffortByPerson(rows);
+  list.sort((a,b)=>{
+    let va = a[effortSort.key], vb = b[effortSort.key];
+    if(typeof va === 'string'){ va = va.toLowerCase(); vb = vb.toLowerCase(); }
+    if(va < vb) return effortSort.dir === 'asc' ? -1 : 1;
+    if(va > vb) return effortSort.dir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const tbody = document.getElementById('effortTableBody');
+  if(!list.length){ tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No activity in this range</div></td></tr>'; return; }
+  tbody.innerHTML = list.map((d,i)=>`
+    <tr>
+      <td>
+        <div class="person-pill">
+          <div class="avatar" style="background:${colorFor(d.person,i)}">${initials(d.person)}</div>
+          ${d.person}
+        </div>
+      </td>
+      <td>${d.tasks}</td>
+      <td><span class="vin-chip">${d.vins}</span></td>
+      <td>${d.effortHrs.toFixed(2)}</td>
+      <td>${d.effortPerTask}</td>
+      <td>${d.unmapped ? `<span class="vin-chip amber">${d.unmapped}</span>` : '—'}</td>
+    </tr>
+  `).join('');
+
+  document.querySelectorAll('#effortTable thead th').forEach(th=>{
+    const arrow = th.querySelector('.arrow');
+    if(arrow) arrow.textContent = th.dataset.key === effortSort.key ? (effortSort.dir === 'asc' ? '↑' : '↓') : '';
+  });
+}
+
+document.addEventListener('click', (e)=>{
+  const th = e.target.closest('#effortTable thead th');
+  if(!th) return;
+  const k = th.dataset.key;
+  if(effortSort.key === k) effortSort.dir = effortSort.dir === 'asc' ? 'desc' : 'asc';
+  else { effortSort.key = k; effortSort.dir = 'desc'; }
+  renderEffortTable(getFilteredRows());
+});
+
 /* ---------- Daily task table ---------- */
 function renderTable(rows){
   const key = r => `${r.date ? isoDate(r.date) : 'unknown'}__${r.person}`;
@@ -930,10 +1165,17 @@ function renderTable(rows){
     grouped[k].impacted += r.impacted;
     grouped[k].reviewTypes[r.reviewType] = (grouped[k].reviewTypes[r.reviewType]||0) + 1;
   });
-  let list = Object.values(grouped).map(g=>({
-    ...g,
-    topReview: Object.entries(g.reviewTypes).sort((a,b)=>b[1]-a[1])[0][0]
-  }));
+  let list = Object.values(grouped).map(g=>{
+    const effortSec = Object.entries(g.reviewTypes).reduce((sum, [rt, count])=>{
+      const f = factorFor(rt);
+      return sum + (f === null ? 0 : f * count);
+    }, 0);
+    return {
+      ...g,
+      topReview: Object.entries(g.reviewTypes).sort((a,b)=>b[1]-a[1])[0][0],
+      effortMin: +(effortSec/60).toFixed(1)
+    };
+  });
 
   list.sort((a,b)=>{
     let va = a[sort.key], vb = b[sort.key];
@@ -945,7 +1187,7 @@ function renderTable(rows){
   });
 
   const tbody = document.getElementById('perfTableBody');
-  if(!list.length){ tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No rows match the current filters</div></td></tr>'; return; }
+  if(!list.length){ tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">No rows match the current filters</div></td></tr>'; return; }
   tbody.innerHTML = list.map((r,i)=>`
     <tr>
       <td>${r.date ? fmtDate(r.date) : '<span style="color:var(--text-faint)">Unknown date</span>'}</td>
@@ -959,6 +1201,7 @@ function renderTable(rows){
       <td><span class="vin-chip">${r.vins}</span></td>
       <td>${r.impacted ? `<span class="vin-chip amber">${r.impacted}</span>` : '—'}</td>
       <td>${r.topReview}</td>
+      <td>${r.effortMin || '—'}</td>
     </tr>
   `).join('');
 
