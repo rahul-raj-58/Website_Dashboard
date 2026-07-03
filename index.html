@@ -265,6 +265,25 @@
     <button id="errorRetry">Retry</button>
   </div>
 
+  <div class="panel" id="pasteSourceBox">
+    <h2>
+      Data source: <span id="sourceLabel" class="tag">Live sheet fetch</span>
+      <span style="font-size:11px;color:var(--text-faint);font-weight:400;text-transform:none;letter-spacing:0;">— if some columns keep coming back blank from the live fetch, paste the sheet's data here directly instead.</span>
+    </h2>
+    <details id="pasteDetails">
+      <summary style="font-size:11.5px;color:var(--text-dim);cursor:pointer;">📋 Paste sheet data manually (guaranteed to work — bypasses the publish/export pipeline entirely)</summary>
+      <div style="margin-top:12px;display:flex;flex-direction:column;gap:10px;">
+        <p style="font-size:11.5px;color:var(--text-faint);margin:0;">In your Google Sheet: click the top-left corner cell (or press Ctrl+A) to select everything, copy (Ctrl+C), then paste directly into the box below (Ctrl+V). Include the header row.</p>
+        <textarea id="pasteArea" placeholder="Paste sheet data here (header row + all rows)…" style="width:100%;min-height:120px;background:var(--panel-raised);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11.5px;padding:10px;resize:vertical;"></textarea>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <button type="button" id="loadPasteBtn" style="background:var(--amber);color:#1a1206;border:none;font-weight:700;padding:9px 16px;border-radius:7px;cursor:pointer;font-size:12.5px;">Use this pasted data</button>
+          <button type="button" id="revertLiveBtn" style="background:var(--panel-raised);border:1px solid var(--border);color:var(--text-dim);padding:9px 14px;border-radius:7px;cursor:pointer;font-size:12.5px;display:none;">Switch back to live fetch</button>
+          <span id="pasteStatus" style="font-size:11.5px;color:var(--text-faint);"></span>
+        </div>
+      </div>
+    </details>
+  </div>
+
   <div class="panel" style="overflow:visible;">
     <h2>Filters <span class="tag" id="rowCountTag">0 records</span></h2>
     <div class="filters">
@@ -488,7 +507,8 @@
     factorRows: [],
     factorMap: { type:null, value:null },
     factors: {}, // reviewType -> numeric factor
-    rawCsvSample: ""
+    rawCsvSample: "",
+    usingPastedData: false
   };
 
   // ---------- DOM SHORTCUTS ----------
@@ -566,6 +586,7 @@
   let countdownTimer = null, refreshTimer = null, secondsLeft = REFRESH_MS/1000;
 
   async function fetchData(){
+    if(state.usingPastedData) return; // manual data is in control — don't overwrite it silently
     setSyncing(true);
     try{
       if(!papaReady) papaReady = await loadFirstWorking(LIB_SOURCES.papa);
@@ -794,6 +815,64 @@
     const lines = state.rawCsvSample.split("\n").slice(0, 4).join("\n");
     el.textContent = lines || "(empty response)";
   }
+
+  // ---------- MANUAL PASTE FALLBACK ----------
+  // Bypasses Google's publish/export pipeline entirely — parses whatever the user
+  // copy-pasted straight out of the sheet (tab-separated when pasted from Sheets,
+  // but comma also works if they paste a CSV).
+  function loadPastedData(raw){
+    if(!raw || !raw.trim()){
+      $("pasteStatus").textContent = "Paste something first.";
+      return;
+    }
+    try{
+      const parsed = Papa.parse(raw.trim(), { header:true, skipEmptyLines:true, delimitersToGuess: ["\t", ",", ";"] });
+      const headers = (parsed.meta.fields || []).map(h => h.trim()).filter(Boolean);
+      if(!headers.length) throw new Error("Couldn't find a header row");
+      const rows = parsed.data.map(r => {
+        const clean = {};
+        headers.forEach(h => clean[h] = cleanCell(r[h] !== undefined ? String(r[h]) : ""));
+        return clean;
+      }).filter(r => Object.values(r).some(v => v !== ""));
+      if(!rows.length) throw new Error("No data rows found");
+
+      state.headers = headers;
+      state.rows = rows;
+      state.usingPastedData = true;
+      clearInterval(refreshTimer);
+      clearInterval(countdownTimer);
+      $("sourceLabel").textContent = "Pasted data (manual)";
+      $("nextSync").textContent = "auto-sync paused";
+      $("revertLiveBtn").style.display = "inline-block";
+      $("pasteStatus").textContent = `Loaded ${rows.length} rows, ${headers.length} columns.`;
+      pulseDot.className = "pulse-dot";
+      lastSyncEl.textContent = new Date().toLocaleTimeString() + " (pasted)";
+      hideError();
+
+      detectColumns();
+      populateMappingSelectors();
+      checkMappingHealth();
+      renderRawDebug();
+      populateFilterOptions();
+      fetchFactors().then(applyFiltersAndRender);
+    }catch(err){
+      $("pasteStatus").textContent = "Couldn't read that: " + err.message;
+    }
+  }
+
+  $("loadPasteBtn").addEventListener("click", async () => {
+    if(!papaReady) papaReady = await loadFirstWorking(LIB_SOURCES.papa);
+    if(!papaReady){ $("pasteStatus").textContent = "CSV parser failed to load — try again."; return; }
+    loadPastedData($("pasteArea").value);
+  });
+  $("revertLiveBtn").addEventListener("click", () => {
+    state.usingPastedData = false;
+    $("sourceLabel").textContent = "Live sheet fetch";
+    $("revertLiveBtn").style.display = "none";
+    $("pasteStatus").textContent = "";
+    fetchData();
+    refreshTimer = setInterval(() => fetchData(), REFRESH_MS);
+  });
 
   function checkMappingHealth(){
     const missing = [];
@@ -1382,7 +1461,10 @@
   }
 
   // ---------- EVENTS ----------
-  syncBtn.addEventListener("click", () => fetchData());
+  syncBtn.addEventListener("click", () => {
+    if(state.usingPastedData){ loadPastedData($("pasteArea").value); return; }
+    fetchData();
+  });
   $("errorRetry").addEventListener("click", () => fetchData());
 
   ["personFilter","typeFilter"].forEach(id => $(id).addEventListener("change", applyFiltersAndRender));
