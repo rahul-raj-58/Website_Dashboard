@@ -192,6 +192,23 @@
   .perf-bar-fill{ height:100%; border-radius:5px; background:linear-gradient(90deg, var(--teal), var(--violet)); }
   .perf-item .num{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); width:96px; text-align:right; flex-shrink:0; }
 
+  .lb-rank{
+    width:24px; height:24px; border-radius:50%; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--mono); font-weight:700; font-size:11.5px;
+  }
+  .lb-nav-btn{
+    width:34px; height:34px; padding:0; display:flex; align-items:center; justify-content:center;
+  }
+  .lb-nav-btn:disabled{ opacity:.35; cursor:not-allowed; }
+  .lb-nav-btn svg{ width:15px; height:15px; }
+  .lb-date-select{
+    background:var(--surface); border:1px solid var(--border); color:var(--text);
+    padding:9px 12px; border-radius:8px; font-family:var(--mono); font-size:12.5px; outline:none;
+  }
+  .lb-date-select:hover{ border-color:#2c3345; }
+  .lb-summary{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); margin-bottom:14px; }
+
   .footer-note{
     padding:20px 32px 0 32px; font-family:var(--mono); font-size:11px; color:var(--text-faint);
     display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;
@@ -305,6 +322,26 @@
         <canvas id="workloadChart"></canvas>
         <div class="empty-state" id="workloadChartEmpty" style="display:none; position:absolute; inset:0; align-items:center; justify-content:center;"></div>
       </div>
+    </div>
+
+    <div class="card" style="grid-column:1 / -1;">
+      <div class="card-head">
+        <div>
+          <h2>Daily leaderboard</h2>
+          <div class="hint">Ranked by VINs × Factor (effort-weighted score), for the selected day</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button class="btn lb-nav-btn" id="lbPrev" title="Previous day">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+          </button>
+          <select class="lb-date-select" id="lbDateSelect"></select>
+          <button class="btn lb-nav-btn" id="lbNext" title="Next day">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="lb-summary" id="leaderboardSummary"></div>
+      <div class="perf-list" id="leaderboardList"></div>
     </div>
 
     <div class="card">
@@ -492,6 +529,7 @@ let factorMap = {};       // reviewType (lowercased) -> factor seconds
 let factorRawRows = [];   // raw parsed rows from the factor sheet, for diagnostics
 let factorSheetError = null;
 let effortSort = { key:'effortHrs', dir:'desc' };
+let leaderboardDate = null; // ISO date string (YYYY-MM-DD) currently shown in the daily leaderboard
 let sort = { key:'date', dir:'desc' };
 let fp = null;
 
@@ -800,8 +838,8 @@ function fillSelect(id, values){
   sel.onchange = renderAll;
 }
 
-function getFilteredRows(){
-  const person = document.getElementById('personFilter').value;
+function getFilteredRows(opts={}){
+  const person = opts.ignorePerson ? '' : document.getElementById('personFilter').value;
   const enterprise = document.getElementById('enterpriseFilter').value;
   const rooftop = document.getElementById('rooftopFilter').value;
   const review = document.getElementById('reviewFilter').value;
@@ -833,6 +871,13 @@ document.getElementById('resetBtn').addEventListener('click', ()=>{
   renderAll();
 });
 
+document.getElementById('lbPrev').addEventListener('click', ()=>stepLeaderboardDate(-1));
+document.getElementById('lbNext').addEventListener('click', ()=>stepLeaderboardDate(1));
+document.getElementById('lbDateSelect').addEventListener('change', (e)=>{
+  leaderboardDate = e.target.value;
+  renderLeaderboard();
+});
+
 /* =========================================================
    RENDER: MAIN ENTRY
 ========================================================= */
@@ -846,6 +891,8 @@ function renderAll(){
   renderPerformance(rows);
   renderFactorChart(rows);
   renderEffortTable(rows);
+  populateLeaderboardDates();
+  renderLeaderboard();
   renderTable(rows);
 }
 
@@ -1017,6 +1064,85 @@ function renderPerformance(rows){
       <div class="name" title="${name}">${name}</div>
       <div class="perf-bar-track"><div class="perf-bar-fill" style="width:${Math.max(4,(d.vins/max*100))}%; background:${colorFor(name,i)}"></div></div>
       <div class="num">${d.vins} VINs · ${d.tasks} tasks</div>
+    </div>
+  `).join('');
+}
+
+/* ---------- Daily leaderboard: ranked by VINs × Factor for a single selected day ---------- */
+function populateLeaderboardDates(){
+  const base = getFilteredRows({ ignorePerson:true }).filter(r=>r.date);
+  const dates = [...new Set(base.map(r=>isoDate(r.date)))].sort();
+  const sel = document.getElementById('lbDateSelect');
+  const prevValue = leaderboardDate;
+  sel.innerHTML = dates.map(d=>`<option value="${d}">${fmtDate(new Date(d))}</option>`).join('');
+  if(!dates.length){
+    leaderboardDate = null;
+    sel.disabled = true;
+    document.getElementById('lbPrev').disabled = true;
+    document.getElementById('lbNext').disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  document.getElementById('lbPrev').disabled = false;
+  document.getElementById('lbNext').disabled = false;
+  leaderboardDate = (prevValue && dates.includes(prevValue)) ? prevValue : dates[dates.length - 1];
+  sel.value = leaderboardDate;
+}
+
+function stepLeaderboardDate(delta){
+  const sel = document.getElementById('lbDateSelect');
+  const dates = [...sel.options].map(o=>o.value);
+  if(!dates.length) return;
+  let idx = dates.indexOf(leaderboardDate);
+  idx = Math.min(dates.length - 1, Math.max(0, idx + delta));
+  leaderboardDate = dates[idx];
+  sel.value = leaderboardDate;
+  renderLeaderboard();
+}
+
+function renderLeaderboard(){
+  const listEl = document.getElementById('leaderboardList');
+  const summaryEl = document.getElementById('leaderboardSummary');
+
+  if(!leaderboardDate){
+    listEl.innerHTML = '<div class="empty-state">No dated rows available for the current filters</div>';
+    summaryEl.textContent = '';
+    return;
+  }
+
+  const dayRows = getFilteredRows({ ignorePerson:true }).filter(r => r.date && isoDate(r.date) === leaderboardDate);
+  if(!dayRows.length){
+    listEl.innerHTML = '<div class="empty-state">No activity on this day</div>';
+    summaryEl.textContent = '';
+    return;
+  }
+
+  const byPerson = {};
+  dayRows.forEach(r=>{
+    byPerson[r.person] = byPerson[r.person] || { tasks:0, vins:0, scoreSec:0, unmapped:0 };
+    const p = byPerson[r.person];
+    p.tasks += 1;
+    p.vins += r.vins;
+    const f = factorFor(r.reviewType);
+    if(f === null) p.unmapped += 1;
+    else p.scoreSec += r.vins * f;
+  });
+
+  const list = Object.entries(byPerson)
+    .map(([person, d]) => ({ person, ...d, scoreMin: +(d.scoreSec/60).toFixed(1) }))
+    .sort((a,b)=> b.scoreMin - a.scoreMin);
+
+  const totalVins = dayRows.reduce((s,r)=>s+r.vins,0);
+  summaryEl.textContent = `${fmtDate(new Date(leaderboardDate))} · ${dayRows.length} tasks · ${totalVins} VINs · ${list.length} reviewer(s) active`;
+
+  const max = list.length ? list[0].scoreMin : 1;
+  const rankColors = ['#f0c419', '#c9d1e0', '#d98c4a'];
+  listEl.innerHTML = list.map((d,i)=>`
+    <div class="perf-item">
+      <div class="lb-rank" style="background:${rankColors[i] || 'var(--surface-2)'}; color:${i<3 ? '#0a0d13' : 'var(--text-dim)'}; border:${i<3 ? 'none' : '1px solid var(--border)'}">${i+1}</div>
+      <div class="name" title="${d.person}">${d.person}</div>
+      <div class="perf-bar-track"><div class="perf-bar-fill" style="width:${Math.max(4, d.scoreMin/max*100)}%; background:${colorFor(d.person,i)}"></div></div>
+      <div class="num">${d.scoreMin} VIN-min · ${d.vins} VINs · ${d.tasks} tasks${d.unmapped ? ' · ' + d.unmapped + ' unmapped' : ''}</div>
     </div>
   `).join('');
 }
