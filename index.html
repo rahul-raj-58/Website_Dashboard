@@ -690,6 +690,10 @@
     const h = state.headers;
     const used = new Set();
 
+    // Exact, case/whitespace-insensitive match against the real header names the
+    // user confirmed straight from their sheet — tried first, before any fuzzy guessing.
+    const exact = (name) => h.find(header => header.trim().toLowerCase() === name.toLowerCase());
+
     const pick = (keywordSets, exclude) => {
       const r = guessColumn(h, keywordSets, exclude);
       return r;
@@ -706,18 +710,18 @@
       return bestByFillRate(candidates);
     };
 
-    state.map.date = pick([["date"],["day"],["timestamp"]]);
+    state.map.date = exact("Date") || pick([["date"],["day"],["timestamp"]]);
     if(state.map.date) used.add(state.map.date);
 
-    state.map.enterpriseName = pickLoose("enterprise", ["id"])
-      || pickLoose("company", ["id"]) || pickLoose("client", ["id"]);
+    state.map.enterpriseName = exact("Enterprise Name")
+      || pickLoose("enterprise", ["id"]) || pickLoose("company", ["id"]) || pickLoose("client", ["id"]);
     if(state.map.enterpriseName) used.add(state.map.enterpriseName);
 
-    state.map.rooftopName = pickLoose("rooftop", ["id"])
-      || pickLoose("location", ["id"]) || pickLoose("dealer", ["id"]) || pickLoose("store", ["id"]);
+    state.map.rooftopName = exact("Rooftop name") || exact("Rooftop Name")
+      || pickLoose("rooftop", ["id"]) || pickLoose("location", ["id"]) || pickLoose("dealer", ["id"]) || pickLoose("store", ["id"]);
     if(state.map.rooftopName) used.add(state.map.rooftopName);
 
-    state.map.person = pick([
+    state.map.person = exact("Work done by") || pick([
       ["work","by"],["done","by"],["performed","by"],["handled","by"],["checked","by"],
       ["completed","by"],["submitted","by"],["processed","by"],["reviewed","by"],
       ["reviewer"],["auditor"],["assigned"],["agent"],["analyst"],["employee"],
@@ -726,15 +730,15 @@
     if(!state.map.person) state.map.person = pick([["name"]], used);
     if(state.map.person) used.add(state.map.person);
 
-    state.map.type = pick([["review","type"],["type"],["category"]], used);
+    state.map.type = exact("Review Type") || pick([["review","type"],["type"],["category"]], used);
     if(state.map.type) used.add(state.map.type);
 
     // VINs / Impacted VINs — need special exclusion logic since both contain "vin"
-    let impacted = bestByFillRate(h.filter(header => {
+    let impacted = exact("Impacted VINs") || bestByFillRate(h.filter(header => {
       const l = header.toLowerCase();
       return l.includes("vin") && (l.includes("impact") || l.includes("imapact"));
     }));
-    let vins = bestByFillRate(h.filter(header => header.trim().toLowerCase() === "vins" && header !== impacted));
+    let vins = exact("VINs") || bestByFillRate(h.filter(header => header.trim().toLowerCase() === "vins" && header !== impacted));
     if(!vins){
       vins = bestByFillRate(h.filter(header => {
         const l = header.toLowerCase();
