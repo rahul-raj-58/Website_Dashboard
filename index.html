@@ -204,6 +204,20 @@
   .toast.show{ display:block; }
   .toast strong{ color:var(--red); display:block; margin-bottom:4px; font-family:var(--mono); font-size:11px; letter-spacing:.05em; text-transform:uppercase; }
 
+  .debug-panel{
+    position:fixed; left:22px; bottom:22px; width:440px; max-height:380px; overflow:auto;
+    background:var(--surface-2); border:1px solid var(--border); border-radius:10px;
+    padding:16px 18px; font-family:var(--mono); font-size:11px; color:var(--text-dim);
+    display:none; z-index:60; box-shadow:0 10px 30px rgba(0,0,0,.45); line-height:1.6;
+  }
+  .debug-panel.show{ display:block; }
+  .debug-panel .dp-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .debug-panel h3{ font-size:11px; color:var(--text); text-transform:uppercase; letter-spacing:.08em; }
+  .debug-panel pre{ white-space:pre-wrap; word-break:break-word; background:var(--surface); padding:8px; border-radius:6px; margin-top:4px; border:1px solid var(--border-soft); }
+  .debug-panel .dp-close{ background:none; border:none; color:var(--text-faint); cursor:pointer; font-size:16px; line-height:1; }
+  .debug-toggle{ font-family:var(--mono); font-size:11px; color:var(--text-faint); background:none; border:none; cursor:pointer; text-decoration:underline; text-underline-offset:3px; }
+  .debug-toggle:hover{ color:var(--text-dim); }
+
   .scanline{
     position:absolute; left:0; right:0; top:0; height:2px;
     background:linear-gradient(90deg, transparent, var(--teal), transparent);
@@ -279,14 +293,17 @@
       <div class="card-head">
         <div>
           <h2>Daily workload — VINs processed</h2>
-          <div class="hint">Bar = VINs handled per day · Line = 7-day trend</div>
+          <div class="hint" id="workloadHint">Bar = VINs handled per day · Line = 7-day trend</div>
         </div>
         <div style="display:flex; gap:14px;">
           <span class="legend-chip"><span class="legend-dot" style="background:var(--teal)"></span>VINs / day</span>
           <span class="legend-chip"><span class="legend-dot" style="background:var(--violet); border-radius:50%;"></span>7-day trend</span>
         </div>
       </div>
-      <div class="chart-box"><canvas id="workloadChart"></canvas></div>
+      <div class="chart-box">
+        <canvas id="workloadChart"></canvas>
+        <div class="empty-state" id="workloadChartEmpty" style="display:none; position:absolute; inset:0; align-items:center; justify-content:center;"></div>
+      </div>
     </div>
 
     <div class="card">
@@ -308,7 +325,10 @@
           <div class="hint">Share of tasks by review type</div>
         </div>
       </div>
-      <div class="chart-box small"><canvas id="reviewChart"></canvas></div>
+      <div class="chart-box small">
+        <canvas id="reviewChart"></canvas>
+        <div class="empty-state" id="reviewChartEmpty" style="display:none; position:absolute; inset:0; align-items:center; justify-content:center;"></div>
+      </div>
     </div>
 
     <div class="card" style="grid-column:1 / -1;">
@@ -339,11 +359,19 @@
 </div>
 
 <div class="footer-note">
-  <span>Source: Google Sheets (published) · Auto-resync every 30 min</span>
+  <span>Source: Google Sheets (published) · Auto-resync every 30 min · <button class="debug-toggle" id="debugToggle">Diagnostics</button></span>
   <span id="rowCountNote">— rows loaded</span>
 </div>
 
 <div class="toast" id="toast"><strong>Sync issue</strong><span id="toastMsg"></span></div>
+
+<div class="debug-panel" id="debugPanel">
+  <div class="dp-head">
+    <h3>Data diagnostics</h3>
+    <button class="dp-close" id="debugClose">&times;</button>
+  </div>
+  <div id="debugBody">No sync yet.</div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
@@ -377,22 +405,47 @@ let fp = null;
    PARSING HELPERS
 ========================================================= */
 function parseDate(v){
-  if(!v) return null;
+  if(v === null || v === undefined) return null;
   v = String(v).trim();
-  // try native
-  let d = new Date(v);
-  if(!isNaN(d)) return stripTime(d);
-  // try DD/MM/YYYY or MM/DD/YYYY
-  const m = v.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if(v === '') return null;
+
+  // strip a trailing time component like "2026-07-01 00:00:00" or "01/07/2026 10:30 AM"
+  const timeStripped = v.replace(/\s+\d{1,2}:\d{2}(:\d{2})?(\s*[APap][Mm])?$/, '').trim();
+
+  // 1) Google Sheets / Excel serial date number (days since 1899-12-30)
+  if(/^\d+(\.\d+)?$/.test(v)){
+    const num = parseFloat(v);
+    if(num > 20000 && num < 60000){
+      const epoch = Date.UTC(1899, 11, 30);
+      const d = new Date(epoch + num * 86400000);
+      if(!isNaN(d)) return stripTime(d);
+    }
+  }
+
+  // 2) Numeric separators: D/M/Y, D-M-Y, D.M.Y (assume day-first; fall back to month-first if day>12)
+  let m = timeStripped.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
   if(m){
     let [_, a, b, y] = m;
-    if(y.length === 2) y = '20' + y;
-    // assume DD/MM/YYYY if first part > 12
-    let day, month;
-    if(parseInt(a) > 12){ day = a; month = b; } else { day = a; month = b; } // default DD/MM
-    d = new Date(`${y}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`);
+    if(y.length === 2) y = (parseInt(y) < 50 ? '20' : '19') + y;
+    let day = a, month = b;
+    if(parseInt(a) > 12 && parseInt(b) <= 12){ day = a; month = b; }
+    else if(parseInt(b) > 12 && parseInt(a) <= 12){ day = b; month = a; }
+    const d = new Date(`${y}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}T00:00:00`);
     if(!isNaN(d)) return stripTime(d);
   }
+
+  // 3) Year-first numeric: Y/M/D or Y-M-D
+  m = timeStripped.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/);
+  if(m){
+    const [_, y, month, day] = m;
+    const d = new Date(`${y}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}T00:00:00`);
+    if(!isNaN(d)) return stripTime(d);
+  }
+
+  // 4) Textual formats the JS Date parser understands natively: "1 Jul 2026", "Jul 1, 2026", ISO strings, etc.
+  let d = new Date(timeStripped);
+  if(!isNaN(d)) return stripTime(d);
+
   return null;
 }
 function stripTime(d){ return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
@@ -432,10 +485,15 @@ async function fetchData(isManual){
     populateFilterOptions();
     renderAll();
     triggerScanlines();
+    updateDiagnostics(parsed);
   }catch(err){
     console.error(err);
     setSyncState('error');
     showToast(err.message || 'Could not reach the published sheet. Check that it is published to the web and CORS-accessible.');
+    const body = document.getElementById('debugBody');
+    body.innerHTML = `<div style="color:var(--red)">Fetch/parse failed: ${escapeHtml(err.message || String(err))}</div>
+      <div style="margin-top:8px;">Check: the sheet is published to the web (File → Share → Publish to web), the URL's <code>gid</code> matches the correct tab, and the tab has a single header row.</div>`;
+    document.getElementById('debugPanel').classList.add('show');
   }finally{
     btn.classList.remove('spinning');
   }
@@ -469,7 +527,10 @@ function normalizeRows(data){
       impacted: countVins(get('Impacted VINs', 'Imapacted VINs')),
       remarks: get('Remarks')
     };
-  }).filter(r => r.date !== null);
+  });
+  // NOTE: rows with an unparseable date are intentionally KEPT (date: null).
+  // They're excluded only from date-based views (timeline chart, date-range filter),
+  // never from totals / person / review-type breakdowns.
 }
 
 /* =========================================================
@@ -515,6 +576,36 @@ function triggerScanlines(){
   });
 }
 
+/* ---------- Diagnostics ---------- */
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function updateDiagnostics(parsed){
+  const headers = (parsed.meta && parsed.meta.fields) ? parsed.meta.fields : [];
+  const invalidDateRows = rawRows.filter(r=>r.date===null);
+  const body = document.getElementById('debugBody');
+  body.innerHTML = `
+    <div>CSV rows parsed: <b>${parsed.data.length}</b></div>
+    <div>Rows kept after normalizing: <b>${rawRows.length}</b></div>
+    <div>Headers detected:</div>
+    <pre>${escapeHtml(headers.join(', ') || '(none — check the sheet is published with a header row)')}</pre>
+    <div>Rows with an unrecognized date: <b>${invalidDateRows.length}</b> (still counted in totals, excluded from the timeline chart)</div>
+    ${invalidDateRows.length ? `<div>Sample raw date values:</div><pre>${escapeHtml(invalidDateRows.slice(0,5).map(r=>JSON.stringify(r.dateRaw)).join(', '))}</pre>` : ''}
+    <div>First raw row from the sheet:</div>
+    <pre>${escapeHtml(JSON.stringify(parsed.data[0] || {}, null, 2))}</pre>
+  `;
+  // auto-open only if something looks wrong
+  if(rawRows.length === 0 || invalidDateRows.length > 0){
+    document.getElementById('debugPanel').classList.add('show');
+  }
+}
+document.getElementById('debugToggle').addEventListener('click', ()=>{
+  document.getElementById('debugPanel').classList.toggle('show');
+});
+document.getElementById('debugClose').addEventListener('click', ()=>{
+  document.getElementById('debugPanel').classList.remove('show');
+});
+
 /* =========================================================
    FILTERS
 ========================================================= */
@@ -527,11 +618,11 @@ function populateFilterOptions(){
   fillSelect('reviewFilter', uniqueSorted(rawRows.map(r=>r.reviewType)));
 
   if(!fp && rawRows.length){
-    const dates = rawRows.map(r=>r.date).sort((a,b)=>a-b);
+    const dates = rawRows.map(r=>r.date).filter(Boolean).sort((a,b)=>a-b);
     fp = flatpickr("#dateRange", {
       mode: "range",
       dateFormat: "d M Y",
-      defaultDate: [dates[0], dates[dates.length-1]],
+      defaultDate: dates.length ? [dates[0], dates[dates.length-1]] : [new Date(), new Date()],
       onChange: renderAll
     });
   }
@@ -566,8 +657,8 @@ function getFilteredRows(){
     if(enterprise && r.enterprise !== enterprise) return false;
     if(rooftop && r.rooftop !== rooftop) return false;
     if(review && r.reviewType !== review) return false;
-    if(start && r.date < start) return false;
-    if(end && r.date > end) return false;
+    if(start && r.date && r.date < start) return false;
+    if(end && r.date && r.date > end) return false;
     return true;
   });
 }
@@ -578,8 +669,8 @@ document.getElementById('resetBtn').addEventListener('click', ()=>{
   document.getElementById('rooftopFilter').value = '';
   document.getElementById('reviewFilter').value = '';
   if(fp && rawRows.length){
-    const dates = rawRows.map(r=>r.date).sort((a,b)=>a-b);
-    fp.setDate([dates[0], dates[dates.length-1]], true);
+    const dates = rawRows.map(r=>r.date).filter(Boolean).sort((a,b)=>a-b);
+    if(dates.length) fp.setDate([dates[0], dates[dates.length-1]], true);
   }
   renderAll();
 });
@@ -624,8 +715,17 @@ function renderKPIs(rows){
 
 /* ---------- Workload trend chart ---------- */
 function renderWorkloadChart(rows){
+  const dateRows = rows.filter(r=>r.date);
+  const undated = rows.length - dateRows.length;
+  const hintEl = document.getElementById('workloadHint');
+  if(hintEl){
+    hintEl.textContent = undated > 0
+      ? `Bar = VINs handled per day · Line = 7-day trend · ${undated} row(s) skipped (unrecognized date)`
+      : 'Bar = VINs handled per day · Line = 7-day trend';
+  }
+
   const byDate = {};
-  rows.forEach(r=>{
+  dateRows.forEach(r=>{
     const k = isoDate(r.date);
     byDate[k] = (byDate[k]||0) + r.vins;
   });
@@ -641,7 +741,8 @@ function renderWorkloadChart(rows){
 
   const ctx = document.getElementById('workloadChart');
   if(charts.workload) charts.workload.destroy();
-  if(!dates.length){ renderEmptyCanvas(ctx); return; }
+  if(!dates.length){ renderEmptyCanvas(ctx, 'No dated rows in the current filters'); return; }
+  document.getElementById('workloadChartEmpty').style.display = 'none';
   charts.workload = new Chart(ctx, {
     data:{
       labels,
@@ -681,9 +782,15 @@ function baseChartOptions(){
   };
 }
 
-function renderEmptyCanvas(canvas){
+function renderEmptyCanvas(canvas, message){
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0,0,canvas.width,canvas.height);
+  const overlayId = canvas.id + 'Empty';
+  const overlay = document.getElementById(overlayId);
+  if(overlay){
+    overlay.textContent = message || 'No data for the current filters';
+    overlay.style.display = 'flex';
+  }
 }
 
 /* ---------- Review type donut ---------- */
@@ -696,7 +803,8 @@ function renderReviewChart(rows){
 
   const ctx = document.getElementById('reviewChart');
   if(charts.review) charts.review.destroy();
-  if(!labels.length){ renderEmptyCanvas(ctx); return; }
+  if(!labels.length){ renderEmptyCanvas(ctx, 'No data for the current filters'); return; }
+  document.getElementById('reviewChartEmpty').style.display = 'none';
   charts.review = new Chart(ctx, {
     type:'doughnut',
     data:{ labels, datasets:[{ data:values, backgroundColor:colors, borderColor:'#12161f', borderWidth:3 }] },
@@ -734,7 +842,7 @@ function renderPerformance(rows){
 
 /* ---------- Daily task table ---------- */
 function renderTable(rows){
-  const key = r => `${isoDate(r.date)}__${r.person}`;
+  const key = r => `${r.date ? isoDate(r.date) : 'unknown'}__${r.person}`;
   const grouped = {};
   rows.forEach(r=>{
     const k = key(r);
@@ -751,7 +859,7 @@ function renderTable(rows){
 
   list.sort((a,b)=>{
     let va = a[sort.key], vb = b[sort.key];
-    if(sort.key === 'date'){ va = a.date.getTime(); vb = b.date.getTime(); }
+    if(sort.key === 'date'){ va = a.date ? a.date.getTime() : -Infinity; vb = b.date ? b.date.getTime() : -Infinity; }
     if(typeof va === 'string'){ va = va.toLowerCase(); vb = vb.toLowerCase(); }
     if(va < vb) return sort.dir === 'asc' ? -1 : 1;
     if(va > vb) return sort.dir === 'asc' ? 1 : -1;
@@ -762,7 +870,7 @@ function renderTable(rows){
   if(!list.length){ tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No rows match the current filters</div></td></tr>'; return; }
   tbody.innerHTML = list.map((r,i)=>`
     <tr>
-      <td>${fmtDate(r.date)}</td>
+      <td>${r.date ? fmtDate(r.date) : '<span style="color:var(--text-faint)">Unknown date</span>'}</td>
       <td>
         <div class="person-pill">
           <div class="avatar" style="background:${colorFor(r.person,i)}">${initials(r.person)}</div>
