@@ -383,8 +383,8 @@
       <div class="scanline" id="scanline3"></div>
       <div class="card-head">
         <div>
-          <h2>Review type breakdown — tasks &amp; effort factor</h2>
-          <div class="hint" id="factorHint">Teal = task count (bottom axis) · Amber = factor in seconds (top axis) — click a bar to filter</div>
+          <h2>Review type breakdown — VINs &amp; effort</h2>
+          <div class="hint" id="factorHint">Bars = total VINs per review type · Line = effort in hours (Σ VINs × Factor) — click a bar to filter</div>
         </div>
       </div>
       <div class="chart-box" style="height:340px;">
@@ -1096,7 +1096,7 @@ function renderEmptyCanvas(canvas, message){
 }
 
 /* ---------- Review type donut ---------- */
-/* ---------- Review type breakdown: task count + effort factor, one chart ---------- */
+/* ---------- Review type breakdown: total VINs (bar) + effort in hours (line), review type on x-axis ---------- */
 function renderReviewEffortChart(rows){
   const hintEl = document.getElementById('factorHint');
   const ctx = document.getElementById('reviewEffortChart');
@@ -1106,30 +1106,26 @@ function renderReviewEffortChart(rows){
     return;
   }
 
-  // Task counts per review type, from the currently filtered rows
-  const taskCounts = {};
-  rows.forEach(r=>{ taskCounts[r.reviewType] = (taskCounts[r.reviewType]||0) + 1; });
-
-  // Union of review types seen in the data and review types known to the Factor sheet
-  const typesInView = new Set(Object.keys(taskCounts));
-  const allKeys = new Set([...Object.keys(factorMap), ...[...typesInView].map(normalizeKey)]);
-  const labelFor = {};
-  rows.forEach(r=> labelFor[normalizeKey(r.reviewType)] = r.reviewType);
-  factorRawRows.forEach(r=>{
-    const rt = r['Review Type'] || r['review type'];
-    if(rt) labelFor[normalizeKey(rt)] = String(rt).trim();
+  // Total VINs and effort (VINs × Factor) per review type, from the currently filtered rows
+  const byType = {};
+  rows.forEach(r=>{
+    byType[r.reviewType] = byType[r.reviewType] || { vins:0, effortSec:0, unmapped:0 };
+    const t = byType[r.reviewType];
+    t.vins += r.vins;
+    const f = factorFor(r.reviewType);
+    if(f === null) t.unmapped += 1;
+    else t.effortSec += r.vins * f;
   });
 
-  const entries = [...allKeys].map(k=>{
-    const label = labelFor[k] || k;
-    return { label, tasks: taskCounts[label] || 0, factor: factorMap[k] ?? null };
-  }).sort((a,b)=> b.tasks - a.tasks);
+  const entries = Object.entries(byType)
+    .map(([label, d]) => ({ label, vins: d.vins, effortHrs: +(d.effortSec/3600).toFixed(2), unmapped: d.unmapped }))
+    .sort((a,b)=> b.vins - a.vins);
 
-  const unmapped = [...typesInView].filter(t => factorFor(t) === null);
+  const unmappedTypes = entries.filter(e=>e.unmapped > 0).map(e=>e.label);
   if(hintEl){
-    hintEl.textContent = (unmapped.length
-      ? `Unmapped in Factor sheet: ${unmapped.join(', ')} · `
-      : '') + 'Teal = task count (bottom axis) · Amber = factor in seconds (top axis) — click a bar to filter';
+    hintEl.textContent = (unmappedTypes.length
+      ? `Unmapped in Factor sheet: ${unmappedTypes.join(', ')} · `
+      : '') + 'Bars = total VINs per review type · Line = effort in hours (Σ VINs × Factor) — click a bar to filter';
   }
 
   if(!entries.length){ renderEmptyCanvas(ctx, 'No data for the current filters'); return; }
@@ -1138,28 +1134,29 @@ function renderReviewEffortChart(rows){
 
   if(charts.reviewEffort) charts.reviewEffort.destroy();
   charts.reviewEffort = new Chart(ctx, {
-    type:'bar',
     data:{
       labels: entries.map(e=>e.label),
       datasets:[
         {
-          label:'Tasks', data: entries.map(e=>e.tasks),
-          backgroundColor:'rgba(53,208,160,0.65)', borderRadius:4, maxBarThickness:18,
-          xAxisID:'x'
+          type:'bar', label:'Total VINs', data: entries.map(e=>e.vins),
+          backgroundColor:'rgba(53,208,160,0.6)', borderRadius:5, maxBarThickness:46,
+          order:2, yAxisID:'y'
         },
         {
-          label:'Factor (sec)', data: entries.map(e=>e.factor),
-          backgroundColor:'rgba(240,167,64,0.65)', borderRadius:4, maxBarThickness:18,
-          xAxisID:'x1'
+          type:'line', label:'Effort (hrs)', data: entries.map(e=>e.effortHrs),
+          borderColor:'#ef6a6a', backgroundColor:'transparent', borderWidth:2.5,
+          pointRadius:3, pointBackgroundColor:'#ef6a6a', tension:.3,
+          order:1, yAxisID:'y1'
         }
       ]
     },
     options:{
-      indexAxis:'y',
       responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
       onClick:(evt, elements, chart)=>{
-        if(!elements.length) return;
-        const label = chart.data.labels[elements[0].index];
+        const points = chart.getElementsAtEventForMode(evt, 'index', { intersect:false }, false);
+        if(!points.length) return;
+        const label = chart.data.labels[points[0].index];
         const opt = [...document.getElementById('reviewFilter').options].find(o=>o.value === label);
         if(opt){ document.getElementById('reviewFilter').value = label; renderAll(); }
       },
@@ -1168,17 +1165,13 @@ function renderReviewEffortChart(rows){
         tooltip:{
           backgroundColor:'#171c27', borderColor:'#232a39', borderWidth:1,
           titleColor:'#e7eaf2', bodyColor:'#99a1b8', padding:10,
-          callbacks:{
-            label:(ctx)=> ctx.dataset.label === 'Factor (sec)' && ctx.raw === null
-              ? 'Factor (sec): not mapped'
-              : `${ctx.dataset.label}: ${ctx.raw}`
-          }
+          titleFont:{ family:'JetBrains Mono', size:11 }, bodyFont:{ family:'Inter', size:12 }
         }
       },
       scales:{
-        x:{ position:'bottom', grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#35d0a0', font:{ size:10, family:'JetBrains Mono' } }, beginAtZero:true, title:{ display:true, text:'Tasks', color:'#35d0a0', font:{ size:10, family:'JetBrains Mono' } } },
-        x1:{ position:'top', grid:{ display:false }, ticks:{ color:'#f0a740', font:{ size:10, family:'JetBrains Mono' } }, beginAtZero:true, title:{ display:true, text:'Factor (sec)', color:'#f0a740', font:{ size:10, family:'JetBrains Mono' } } },
-        y:{ grid:{ display:false }, ticks:{ color:'#99a1b8', font:{ size:11, family:'Inter' } } }
+        x:{ grid:{ color:'rgba(255,255,255,0.03)' }, ticks:{ color:'#99a1b8', font:{ size:10.5, family:'Inter' }, maxRotation:35, minRotation:0, autoSkip:false } },
+        y:{ position:'left', grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#35d0a0', font:{ size:10.5, family:'JetBrains Mono' } }, beginAtZero:true, title:{ display:true, text:'Total VINs', color:'#35d0a0', font:{ size:10, family:'JetBrains Mono' } } },
+        y1:{ position:'right', grid:{ display:false }, ticks:{ color:'#ef6a6a', font:{ size:10.5, family:'JetBrains Mono' } }, beginAtZero:true, title:{ display:true, text:'Effort (hrs)', color:'#ef6a6a', font:{ size:10, family:'JetBrains Mono' } } }
       }
     }
   });
