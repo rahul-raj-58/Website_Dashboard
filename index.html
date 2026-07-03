@@ -254,6 +254,7 @@
     </div>
     <details class="mapping">
       <summary>Column mapping (auto-detected — adjust if a filter looks wrong)</summary>
+      <div id="mappingNotice" style="display:none;background:rgba(255,90,95,0.1);border:1px solid rgba(255,90,95,0.35);color:#ffb3b3;padding:8px 12px;border-radius:7px;font-size:12px;margin-top:10px;"></div>
       <div class="mapping-grid">
         <div class="field"><label>Date column</label><select id="mapDate"></select></div>
         <div class="field"><label>Reviewer column</label><select id="mapPerson"></select></div>
@@ -441,6 +442,7 @@
 
       detectColumns();
       populateMappingSelectors();
+      checkMappingHealth();
       populateFilterOptions();
       applyFiltersAndRender();
 
@@ -456,9 +458,58 @@
 
   function detectColumns(){
     const h = state.headers;
-    state.map.date = guessColumn(h, [["date"]]);
-    state.map.person = guessColumn(h, [["work","by"],["done","by"],["reviewer"],["assigned"]]);
-    state.map.type = guessColumn(h, [["review","type"],["type"]]);
+    const used = new Set();
+
+    const pick = (keywordSets, exclude) => {
+      for(const kws of keywordSets){
+        const hit = h.find(header => {
+          if(used.has(header) || (exclude && exclude.has(header))) return false;
+          const low = header.toLowerCase();
+          return kws.every(k => low.includes(k));
+        });
+        if(hit) return hit;
+      }
+      return null;
+    };
+
+    state.map.date = pick([["date"],["day"],["timestamp"]]);
+    if(state.map.date) used.add(state.map.date);
+
+    // Enterprise / Rooftop name columns get excluded from the "person" guess so
+    // a generic "name" keyword doesn't grab the wrong column.
+    const enterpriseName = pick([["enterprise","name"]]);
+    const rooftopName = pick([["rooftop","name"]]);
+    const noise = new Set([enterpriseName, rooftopName].filter(Boolean));
+
+    state.map.person = pick([
+      ["work","by"],["done","by"],["performed","by"],["handled","by"],["checked","by"],
+      ["completed","by"],["submitted","by"],["processed","by"],
+      ["reviewer"],["auditor"],["assigned"],["agent"],["analyst"],["employee"],
+      ["owner"],["author"],["user"]
+    ], noise);
+    if(!state.map.person){
+      // last-resort fallback: any remaining "name" column that isn't enterprise/rooftop
+      state.map.person = pick([["name"]], noise);
+    }
+    if(state.map.person) used.add(state.map.person);
+
+    state.map.type = pick([["review","type"],["type"],["category"]], noise);
+    if(state.map.type) used.add(state.map.type);
+  }
+
+  function checkMappingHealth(){
+    const missing = [];
+    if(!state.map.date) missing.push("Date");
+    if(!state.map.person) missing.push("Reviewer");
+    if(!state.map.type) missing.push("Review type");
+    const notice = $("mappingNotice");
+    if(missing.length){
+      notice.style.display = "block";
+      notice.textContent = `Couldn't confidently detect: ${missing.join(", ")}. Pick the right column${missing.length>1?"s":""} below in "Column mapping".`;
+      document.querySelector("details.mapping").open = true;
+    }else{
+      notice.style.display = "none";
+    }
   }
 
   function populateMappingSelectors(){
@@ -568,7 +619,7 @@
     const maxEntries = Math.max(totalEntries, 1);
     const cards = [
       { num: totalEntries, lbl: "Total Reviews", pct: 1, color:"var(--amber)" },
-      { num: persons.size, lbl: "Active Reviewers", pct: Math.min(persons.size/10,1), color:"var(--teal)" },
+      { num: state.map.person ? persons.size : "—", lbl: "Active Reviewers", pct: state.map.person ? Math.min(persons.size/10,1) : 0, color:"var(--teal)" },
       { num: avgPerDay, lbl: "Avg Reviews / Day", pct: Math.min(parseFloat(avgPerDay)/20,1), color:"var(--amber)" },
       { num: vinsCol ? totalVins : "—", lbl: "VINs Impacted", pct: vinsCol ? Math.min(totalVins/200,1) : 0, color:"var(--coral)" },
     ];
@@ -587,24 +638,35 @@
   // ---------- CHARTS ----------
   function destroyChart(key){ if(state.charts[key]){ state.charts[key].destroy(); delete state.charts[key]; } }
 
-  function chartsUnavailableNotice(canvasId){
+  function chartsUnavailableNotice(canvasId, message){
     const canvas = document.getElementById(canvasId);
     if(!canvas) return;
     const box = canvas.parentElement;
-    if(box.querySelector(".chart-fallback-note")) return;
-    const note = document.createElement("div");
-    note.className = "chart-fallback-note";
-    note.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:12.5px;text-align:center;padding:20px;";
-    note.textContent = "Charts couldn't load (network to CDN blocked). Filters, KPIs and tables below still work.";
+    let note = box.querySelector(".chart-fallback-note");
+    if(!note){
+      note = document.createElement("div");
+      note.className = "chart-fallback-note";
+      note.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:12.5px;text-align:center;padding:20px;";
+      box.appendChild(note);
+    }
+    note.textContent = message || "Charts couldn't load (network to CDN blocked). Filters, KPIs and tables below still work.";
+    note.style.display = "flex";
     canvas.style.display = "none";
-    box.appendChild(note);
+  }
+  function hideChartNotice(canvasId){
+    const canvas = document.getElementById(canvasId);
+    if(!canvas) return;
+    const note = canvas.parentElement.querySelector(".chart-fallback-note");
+    if(note) note.style.display = "none";
+    canvas.style.display = "block";
   }
 
   function renderDailyChart(){
     if(!chartReady){ chartsUnavailableNotice("dailyChart"); return; }
-    destroyChart("daily");
     const dateCol = state.map.date, personCol = state.map.person;
-    if(!dateCol || !personCol) return;
+    if(!dateCol || !personCol){ chartsUnavailableNotice("dailyChart", "Set the Date and Reviewer columns in Column Mapping above to see this chart."); destroyChart("daily"); return; }
+    hideChartNotice("dailyChart");
+    destroyChart("daily");
 
     const byDate = {};
     state.filtered.forEach(r => {
@@ -644,9 +706,10 @@
 
   function renderLeaderboard(){
     if(!chartReady){ chartsUnavailableNotice("leaderChart"); return; }
-    destroyChart("leader");
     const personCol = state.map.person;
-    if(!personCol) return;
+    if(!personCol){ chartsUnavailableNotice("leaderChart", "Set the Reviewer column in Column Mapping above to see this chart."); destroyChart("leader"); return; }
+    hideChartNotice("leaderChart");
+    destroyChart("leader");
     const counts = {};
     state.filtered.forEach(r => { const p = r[personCol]; if(p) counts[p] = (counts[p]||0)+1; });
     const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,10);
@@ -671,9 +734,10 @@
 
   function renderTypeChart(){
     if(!chartReady){ chartsUnavailableNotice("typeChart"); return; }
-    destroyChart("type");
     const typeCol = state.map.type;
-    if(!typeCol) return;
+    if(!typeCol){ chartsUnavailableNotice("typeChart", "Set the Review type column in Column Mapping above to see this chart."); destroyChart("type"); return; }
+    hideChartNotice("typeChart");
+    destroyChart("type");
     const counts = {};
     state.filtered.forEach(r => { const t = r[typeCol] || "Unspecified"; counts[t] = (counts[t]||0)+1; });
     const entries = Object.entries(counts);
@@ -800,9 +864,9 @@
     document.querySelectorAll(".chip").forEach(c => c.classList.toggle("active", c.dataset.range === range));
   }
 
-  $("mapDate").addEventListener("change", e => { state.map.date = e.target.value; applyFiltersAndRender(); });
-  $("mapPerson").addEventListener("change", e => { state.map.person = e.target.value; populateFilterOptions(); applyFiltersAndRender(); });
-  $("mapType").addEventListener("change", e => { state.map.type = e.target.value; populateFilterOptions(); applyFiltersAndRender(); });
+  $("mapDate").addEventListener("change", e => { state.map.date = e.target.value; checkMappingHealth(); applyFiltersAndRender(); });
+  $("mapPerson").addEventListener("change", e => { state.map.person = e.target.value; checkMappingHealth(); populateFilterOptions(); applyFiltersAndRender(); });
+  $("mapType").addEventListener("change", e => { state.map.type = e.target.value; checkMappingHealth(); populateFilterOptions(); applyFiltersAndRender(); });
 
   document.addEventListener("click", e => {
     const th = e.target.closest("th[data-col]");
