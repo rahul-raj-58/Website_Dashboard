@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rooftop Review Ops — Workload &amp; Performance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0a0d12;
+    --panel:#12161c;
+    --panel-raised:#181d25;
+    --border:#242b36;
+    --grid-line:#1c222b;
+    --text:#e9ecf1;
+    --text-dim:#8b93a3;
+    --text-faint:#5b6472;
+    --amber:#ff9e2c;
+    --amber-dim:#8a5a20;
+    --teal:#33c7b0;
+    --coral:#ff5a5f;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(circle at 15% 0%, rgba(255,158,44,0.06), transparent 40%),
+      radial-gradient(circle at 85% 10%, rgba(51,199,176,0.05), transparent 45%),
+      var(--bg);
+    color:var(--text);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+    padding:24px;
+  }
+  ::selection{background:var(--amber-dim);color:#fff;}
+  .wrap{max-width:1400px;margin:0 auto;display:flex;flex-direction:column;gap:18px;}
+
+  /* ---------- HEADER ---------- */
+  .topbar{
+    display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;
+    padding:18px 22px;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
+  }
+  .brand{display:flex;align-items:center;gap:12px;}
+  .brand-mark{
+    width:38px;height:38px;border-radius:9px;flex-shrink:0;
+    background:conic-gradient(from 220deg, var(--amber), #3a2408 60%, var(--amber));
+    display:flex;align-items:center;justify-content:center;
+    font-family:'JetBrains Mono',monospace;font-weight:700;color:#12161c;font-size:15px;
+    box-shadow:0 0 18px rgba(255,158,44,0.35);
+  }
+  .brand h1{font-family:'Space Grotesk',sans-serif;font-size:18px;margin:0;letter-spacing:0.3px;}
+  .brand .sub{font-size:11.5px;color:var(--text-dim);letter-spacing:1.2px;text-transform:uppercase;margin-top:2px;}
+
+  .sync-cluster{display:flex;align-items:center;gap:18px;flex-wrap:wrap;}
+  .sync-status{display:flex;align-items:center;gap:9px;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--text-dim);}
+  .pulse-dot{
+    position:relative;width:11px;height:11px;border-radius:50%;background:var(--teal);
+    box-shadow:0 0 0 0 rgba(51,199,176,0.6);
+    animation:pulse 2.4s ease-out infinite;
+  }
+  .pulse-dot.syncing{background:var(--amber);box-shadow:0 0 0 0 rgba(255,158,44,0.6);animation:pulse-fast 0.9s ease-out infinite;}
+  .pulse-dot.error{background:var(--coral);box-shadow:none;animation:none;}
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 rgba(51,199,176,0.55);}
+    70%{box-shadow:0 0 0 9px rgba(51,199,176,0);}
+    100%{box-shadow:0 0 0 0 rgba(51,199,176,0);}
+  }
+  @keyframes pulse-fast{
+    0%{box-shadow:0 0 0 0 rgba(255,158,44,0.6);}
+    70%{box-shadow:0 0 0 7px rgba(255,158,44,0);}
+    100%{box-shadow:0 0 0 0 rgba(255,158,44,0);}
+  }
+  .sync-status b{color:var(--text);font-weight:600;}
+  .next-sync{font-size:11px;color:var(--text-faint);}
+  #syncBtn{
+    display:flex;align-items:center;gap:8px;
+    background:var(--panel-raised);border:1px solid var(--border);color:var(--text);
+    font-family:'Inter',sans-serif;font-weight:600;font-size:13px;
+    padding:10px 16px;border-radius:8px;cursor:pointer;transition:all .15s ease;
+  }
+  #syncBtn:hover{border-color:var(--amber);color:var(--amber);}
+  #syncBtn:active{transform:scale(0.97);}
+  #syncBtn svg{width:15px;height:15px;transition:transform .5s ease;}
+  #syncBtn.spinning svg{animation:spin .8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .error-banner{
+    display:none;background:#2a1414;border:1px solid #5c2626;color:#ffb3b3;
+    padding:12px 16px;border-radius:var(--radius);font-size:13px;align-items:center;justify-content:space-between;gap:12px;
+  }
+  .error-banner.show{display:flex;}
+  .error-banner button{background:transparent;border:1px solid #5c2626;color:#ffb3b3;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;}
+
+  /* ---------- PANEL GENERIC ---------- */
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:20px;}
+  .panel h2{
+    font-family:'Space Grotesk',sans-serif;font-size:13.5px;text-transform:uppercase;letter-spacing:1.2px;
+    color:var(--text-dim);margin:0 0 16px 0;display:flex;align-items:center;gap:8px;
+  }
+  .panel h2 .tag{
+    font-family:'JetBrains Mono',monospace;font-size:10px;background:var(--panel-raised);
+    color:var(--amber);padding:2px 7px;border-radius:4px;letter-spacing:0.5px;
+  }
+
+  /* ---------- FILTERS ---------- */
+  .filters{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;}
+  .field{display:flex;flex-direction:column;gap:6px;min-width:150px;}
+  .field label{font-size:10.5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.8px;}
+  .field input, .field select{
+    background:var(--panel-raised);border:1px solid var(--border);color:var(--text);
+    padding:9px 10px;border-radius:7px;font-size:13px;font-family:'Inter',sans-serif;
+    outline:none;transition:border-color .15s ease;
+  }
+  .field input:focus, .field select:focus{border-color:var(--amber);}
+  .field input[type="date"]{color-scheme:dark;}
+  .presets{display:flex;gap:6px;flex-wrap:wrap;}
+  .chip{
+    background:var(--panel-raised);border:1px solid var(--border);color:var(--text-dim);
+    padding:7px 12px;border-radius:20px;font-size:11.5px;cursor:pointer;transition:all .15s ease;white-space:nowrap;
+  }
+  .chip:hover{border-color:var(--teal);color:var(--teal);}
+  .chip.active{background:rgba(255,158,44,0.12);border-color:var(--amber);color:var(--amber);}
+  .reset-link{color:var(--text-faint);font-size:12px;cursor:pointer;text-decoration:underline;margin-left:auto;align-self:center;}
+  .reset-link:hover{color:var(--coral);}
+
+  details.mapping{margin-top:4px;}
+  details.mapping summary{font-size:11px;color:var(--text-faint);cursor:pointer;user-select:none;}
+  .mapping-grid{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;}
+
+  /* ---------- KPI GAUGES ---------- */
+  .kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;}
+  .gauge-card{
+    background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
+    padding:18px;display:flex;align-items:center;gap:16px;
+  }
+  .gauge-card svg{flex-shrink:0;}
+  .gauge-val{font-family:'JetBrains Mono',monospace;font-size:12.5px;fill:var(--text);font-weight:600;}
+  .gauge-info .num{font-family:'JetBrains Mono',monospace;font-size:26px;font-weight:700;color:var(--text);line-height:1;}
+  .gauge-info .lbl{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;margin-top:6px;}
+  .gauge-info .delta{font-size:11px;margin-top:4px;font-family:'JetBrains Mono',monospace;}
+
+  /* ---------- CHARTS ---------- */
+  .charts-row{display:grid;grid-template-columns:1.4fr 1fr;gap:16px;}
+  .chart-box{position:relative;height:280px;}
+  @media (max-width:900px){.charts-row{grid-template-columns:1fr;}}
+
+  /* ---------- PERSON DEEP DIVE ---------- */
+  .deepdive-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px;}
+  .mini-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px;}
+  .mini-kpi{background:var(--panel-raised);border:1px solid var(--border);border-radius:8px;padding:12px 14px;}
+  .mini-kpi .num{font-family:'JetBrains Mono',monospace;font-size:19px;font-weight:700;color:var(--amber);}
+  .mini-kpi .lbl{font-size:10.5px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.6px;margin-top:4px;}
+
+  /* ---------- TABLE ---------- */
+  .table-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;}
+  .search-box{
+    background:var(--panel-raised);border:1px solid var(--border);border-radius:7px;
+    padding:9px 12px;font-size:13px;color:var(--text);min-width:220px;
+  }
+  .table-scroll{overflow-x:auto;border:1px solid var(--grid-line);border-radius:8px;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:900px;}
+  thead th{
+    background:var(--panel-raised);color:var(--text-dim);text-align:left;padding:10px 12px;
+    font-size:10.5px;text-transform:uppercase;letter-spacing:0.6px;cursor:pointer;white-space:nowrap;
+    border-bottom:1px solid var(--grid-line);position:sticky;top:0;
+  }
+  thead th:hover{color:var(--amber);}
+  thead th .arrow{opacity:0.5;margin-left:4px;font-size:9px;}
+  tbody td{padding:9px 12px;border-bottom:1px solid var(--grid-line);color:var(--text);white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis;}
+  tbody tr:hover{background:rgba(255,158,44,0.04);}
+  tbody tr:nth-child(even){background:rgba(255,255,255,0.012);}
+  .badge{padding:3px 9px;border-radius:20px;font-size:10.5px;font-family:'JetBrains Mono',monospace;background:rgba(51,199,176,0.12);color:var(--teal);border:1px solid rgba(51,199,176,0.3);}
+  .empty-row td{text-align:center;color:var(--text-faint);padding:32px;font-size:13px;}
+  .pagination{display:flex;justify-content:space-between;align-items:center;margin-top:14px;font-size:12px;color:var(--text-dim);}
+  .pagination .pg-btns{display:flex;gap:6px;}
+  .pagination button{
+    background:var(--panel-raised);border:1px solid var(--border);color:var(--text-dim);
+    padding:6px 11px;border-radius:6px;cursor:pointer;font-size:12px;
+  }
+  .pagination button:disabled{opacity:0.35;cursor:not-allowed;}
+  .pagination button:not(:disabled):hover{border-color:var(--amber);color:var(--amber);}
+
+  .loading-shimmer{
+    height:100%;width:100%;border-radius:8px;
+    background:linear-gradient(90deg,var(--panel-raised) 25%,#1e2530 37%,var(--panel-raised) 63%);
+    background-size:400% 100%;animation:shimmer 1.4s ease infinite;
+  }
+  @keyframes shimmer{0%{background-position:100% 50%;}100%{background-position:0 50%;}}
+
+  footer{text-align:center;color:var(--text-faint);font-size:11px;padding:10px 0 4px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">RV</div>
+      <div>
+        <h1>Rooftop Review Ops</h1>
+        <div class="sub">Daily Workload &amp; Reviewer Performance</div>
+      </div>
+    </div>
+    <div class="sync-cluster">
+      <div class="sync-status">
+        <span class="pulse-dot" id="pulseDot"></span>
+        <span>Last sync: <b id="lastSync">—</b></span>
+        <span class="next-sync" id="nextSync">next in 30:00</span>
+      </div>
+      <button id="syncBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        Sync now
+      </button>
+    </div>
+  </div>
+
+  <div class="error-banner" id="errorBanner">
+    <span id="errorText">Couldn't reach the sheet.</span>
+    <button id="errorRetry">Retry</button>
+  </div>
+
+  <div class="panel">
+    <h2>Filters <span class="tag" id="rowCountTag">0 records</span></h2>
+    <div class="filters">
+      <div class="field">
+        <label>From date</label>
+        <input type="date" id="fromDate">
+      </div>
+      <div class="field">
+        <label>To date</label>
+        <input type="date" id="toDate">
+      </div>
+      <div class="field">
+        <label>Reviewer</label>
+        <select id="personFilter"><option value="">All reviewers</option></select>
+      </div>
+      <div class="field">
+        <label>Review type</label>
+        <select id="typeFilter"><option value="">All types</option></select>
+      </div>
+      <div class="field" style="flex:1;min-width:200px;">
+        <label>Search</label>
+        <input type="text" id="globalSearch" class="search-box" placeholder="Enterprise, rooftop, VIN, remarks…" style="width:100%;">
+      </div>
+      <span class="reset-link" id="resetFilters">Reset all</span>
+    </div>
+    <div class="presets" style="margin-top:12px;">
+      <span class="chip" data-range="today">Today</span>
+      <span class="chip" data-range="7">Last 7 days</span>
+      <span class="chip" data-range="30">Last 30 days</span>
+      <span class="chip active" data-range="all">All time</span>
+    </div>
+    <details class="mapping">
+      <summary>Column mapping (auto-detected — adjust if a filter looks wrong)</summary>
+      <div class="mapping-grid">
+        <div class="field"><label>Date column</label><select id="mapDate"></select></div>
+        <div class="field"><label>Reviewer column</label><select id="mapPerson"></select></div>
+        <div class="field"><label>Review type column</label><select id="mapType"></select></div>
+      </div>
+    </details>
+  </div>
+
+  <div class="kpi-row" id="kpiRow"></div>
+
+  <div class="panel">
+    <h2>Daily Workload <span class="tag">entries per day, by reviewer</span></h2>
+    <div class="chart-box"><canvas id="dailyChart"></canvas></div>
+  </div>
+
+  <div class="charts-row">
+    <div class="panel">
+      <h2>Reviewer Leaderboard <span class="tag">total entries</span></h2>
+      <div class="chart-box"><canvas id="leaderChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <h2>Review Type Mix</h2>
+      <div class="chart-box"><canvas id="typeChart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="deepdive-head">
+      <h2 style="margin:0;">Reviewer Deep-Dive</h2>
+      <div class="field" style="min-width:220px;">
+        <select id="deepDiveSelect"><option value="">Select a reviewer…</option></select>
+      </div>
+    </div>
+    <div id="deepDiveBody">
+      <p style="color:var(--text-faint);font-size:13px;">Pick a reviewer above to see their complete work log, entry count, VINs impacted, and active days.</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="table-head">
+      <h2 style="margin:0;">All Records</h2>
+      <input type="text" id="tableSearch" class="search-box" placeholder="Quick filter table…">
+    </div>
+    <div class="table-scroll">
+      <table id="dataTable">
+        <thead><tr id="tableHeadRow"></tr></thead>
+        <tbody id="tableBody"><tr class="empty-row"><td colspan="10">Loading data…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="pagination">
+      <span id="pageInfo">—</span>
+      <div class="pg-btns">
+        <button id="prevPage">‹ Prev</button>
+        <button id="nextPage">Next ›</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>Auto-resyncs every 30 minutes · Source: published Google Sheet (read-only)</footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- CONFIG ----------
+  const SHEET_KEY = "2PACX-1vRl_3g25PgrDGOBIcwKh_U7IIowogVtUFmmqtUKnLUKR2S4zxjkly29RUD9_T8I_tvZ5Mam5Y9RqKFF";
+  const GID = "421286318";
+  const CSV_URL = `https://docs.google.com/spreadsheets/d/e/${SHEET_KEY}/pub?gid=${GID}&single=true&output=csv`;
+  const REFRESH_MS = 30 * 60 * 1000;
+  const PAGE_SIZE = 15;
+  const COLORS = ["#ff9e2c","#33c7b0","#5b9dff","#ff5a5f","#c792ea","#7bd88f","#f2c94c","#ff8fb1","#6fd3ff","#d0a24c"];
+
+  // ---------- STATE ----------
+  const state = {
+    headers: [],
+    rows: [],          // array of objects keyed by original header
+    filtered: [],
+    map: { date:null, person:null, type:null },
+    sort: { col:null, dir:1 },
+    page: 1,
+    activeRange: "all",
+    charts: {}
+  };
+
+  // ---------- DOM SHORTCUTS ----------
+  const $ = (id) => document.getElementById(id);
+  const pulseDot = $("pulseDot"), lastSyncEl = $("lastSync"), nextSyncEl = $("nextSync");
+  const syncBtn = $("syncBtn"), errorBanner = $("errorBanner"), errorText = $("errorText");
+
+  // ---------- UTIL ----------
+  function guessColumn(headers, keywordSets){
+    for(const kws of keywordSets){
+      const hit = headers.find(h => {
+        const low = h.toLowerCase();
+        return kws.every(k => low.includes(k));
+      });
+      if(hit) return hit;
+    }
+    return null;
+  }
+
+  function parseDate(val){
+    if(!val) return null;
+    val = String(val).trim();
+    let d = new Date(val);
+    if(!isNaN(d.getTime())) return d;
+    const parts = val.split(/[\/\-]/);
+    if(parts.length === 3){
+      let [a,b,c] = parts.map(p => parseInt(p,10));
+      if(c < 100) c += 2000;
+      // try dd/mm/yyyy
+      if(a > 12){ d = new Date(c, b-1, a); if(!isNaN(d.getTime())) return d; }
+      // try mm/dd/yyyy
+      d = new Date(c, a-1, b);
+      if(!isNaN(d.getTime())) return d;
+    }
+    return null;
+  }
+
+  function fmtDate(d){
+    if(!d) return "—";
+    return d.toLocaleDateString(undefined,{year:"numeric",month:"short",day:"2-digit"});
+  }
+
+  function isoDate(d){
+    return d.toISOString().slice(0,10);
+  }
+
+  function debounce(fn, ms){
+    let t; return (...a) => { clearTimeout(t); t = setTimeout(()=>fn(...a), ms); };
+  }
+
+  // ---------- FETCH ----------
+  let countdownTimer = null, refreshTimer = null, secondsLeft = REFRESH_MS/1000;
+
+  async function fetchData(isManual){
+    setSyncing(true);
+    try{
+      const res = await fetch(CSV_URL + (CSV_URL.includes("?") ? "&" : "?") + "cachebust=" + Date.now());
+      if(!res.ok) throw new Error("HTTP " + res.status);
+      const text = await res.text();
+      const parsed = Papa.parse(text, { header:true, skipEmptyLines:true });
+      if(parsed.errors && parsed.errors.length && (!parsed.data || !parsed.data.length)){
+        throw new Error("Could not parse sheet data");
+      }
+      state.headers = (parsed.meta.fields || []).map(h => h.trim());
+      state.rows = parsed.data.map(r => {
+        const clean = {};
+        state.headers.forEach(h => clean[h] = (r[h] !== undefined ? String(r[h]).trim() : ""));
+        return clean;
+      }).filter(r => Object.values(r).some(v => v !== ""));
+
+      detectColumns();
+      populateMappingSelectors();
+      populateFilterOptions();
+      applyFiltersAndRender();
+
+      setSyncing(false, true);
+      hideError();
+    }catch(err){
+      console.error(err);
+      setSyncing(false, false);
+      showError("Couldn't load the sheet — check your connection or the sheet's publish settings. (" + err.message + ")");
+    }
+    resetCountdown();
+  }
+
+  function detectColumns(){
+    const h = state.headers;
+    state.map.date = guessColumn(h, [["date"]]);
+    state.map.person = guessColumn(h, [["work","by"],["done","by"],["reviewer"],["assigned"]]);
+    state.map.type = guessColumn(h, [["review","type"],["type"]]);
+  }
+
+  function populateMappingSelectors(){
+    const fill = (sel, current) => {
+      sel.innerHTML = state.headers.map(h => `<option value="${h}" ${h===current?"selected":""}>${h}</option>`).join("");
+    };
+    fill($("mapDate"), state.map.date);
+    fill($("mapPerson"), state.map.person);
+    fill($("mapType"), state.map.type);
+  }
+
+  function setSyncing(on, success){
+    if(on){
+      pulseDot.className = "pulse-dot syncing";
+      syncBtn.classList.add("spinning");
+    }else{
+      syncBtn.classList.remove("spinning");
+      pulseDot.className = success ? "pulse-dot" : "pulse-dot error";
+      if(success) lastSyncEl.textContent = new Date().toLocaleTimeString();
+    }
+  }
+
+  function showError(msg){ errorText.textContent = msg; errorBanner.classList.add("show"); }
+  function hideError(){ errorBanner.classList.remove("show"); }
+
+  function resetCountdown(){
+    secondsLeft = REFRESH_MS/1000;
+    clearInterval(countdownTimer);
+    countdownTimer = setInterval(() => {
+      secondsLeft--;
+      if(secondsLeft <= 0){ secondsLeft = 0; }
+      const m = String(Math.floor(secondsLeft/60)).padStart(2,"0");
+      const s = String(secondsLeft%60).padStart(2,"0");
+      nextSyncEl.textContent = `next in ${m}:${s}`;
+    }, 1000);
+  }
+
+  // ---------- FILTER OPTIONS ----------
+  function populateFilterOptions(){
+    const personSel = $("personFilter"), typeSel = $("typeFilter"), ddSel = $("deepDiveSelect");
+    const persons = [...new Set(state.rows.map(r => r[state.map.person]).filter(Boolean))].sort();
+    const types = [...new Set(state.rows.map(r => r[state.map.type]).filter(Boolean))].sort();
+    personSel.innerHTML = `<option value="">All reviewers</option>` + persons.map(p=>`<option value="${p}">${p}</option>`).join("");
+    typeSel.innerHTML = `<option value="">All types</option>` + types.map(t=>`<option value="${t}">${t}</option>`).join("");
+    ddSel.innerHTML = `<option value="">Select a reviewer…</option>` + persons.map(p=>`<option value="${p}">${p}</option>`).join("");
+  }
+
+  // ---------- FILTERING ----------
+  function applyFiltersAndRender(){
+    const from = $("fromDate").value ? new Date($("fromDate").value) : null;
+    const to = $("toDate").value ? new Date($("toDate").value) : null;
+    if(to) to.setHours(23,59,59,999);
+    const person = $("personFilter").value;
+    const type = $("typeFilter").value;
+    const search = $("globalSearch").value.trim().toLowerCase();
+
+    state.filtered = state.rows.filter(r => {
+      if(state.map.date){
+        const d = parseDate(r[state.map.date]);
+        if(from && d && d < from) return false;
+        if(to && d && d > to) return false;
+      }
+      if(person && r[state.map.person] !== person) return false;
+      if(type && r[state.map.type] !== type) return false;
+      if(search){
+        const hay = Object.values(r).join(" ").toLowerCase();
+        if(!hay.includes(search)) return false;
+      }
+      return true;
+    });
+
+    $("rowCountTag").textContent = `${state.filtered.length} record${state.filtered.length===1?"":"s"}`;
+
+    renderKPIs();
+    renderDailyChart();
+    renderLeaderboard();
+    renderTypeChart();
+    renderDeepDive();
+    state.page = 1;
+    renderTable();
+  }
+
+  // ---------- KPI GAUGES ----------
+  function gaugeSVG(pct, color, size=64){
+    const r = size/2 - 6, c = 2*Math.PI*r, off = c*(1-pct);
+    const cx = size/2, cy = size/2;
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--grid-line)" stroke-width="6"/>
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="6" stroke-linecap="round"
+        stroke-dasharray="${c}" stroke-dashoffset="${off}" transform="rotate(-90 ${cx} ${cy})"/>
+    </svg>`;
+  }
+
+  function renderKPIs(){
+    const rows = state.filtered;
+    const totalEntries = rows.length;
+    const persons = new Set(rows.map(r => r[state.map.person]).filter(Boolean));
+    const dates = [...new Set(rows.map(r => r[state.map.date]).filter(Boolean))];
+    const avgPerDay = dates.length ? (totalEntries/dates.length).toFixed(1) : "0.0";
+
+    let vinsCol = state.headers.find(h => /vin/i.test(h) && /(impact|imapact)/i.test(h));
+    let totalVins = 0;
+    if(vinsCol){
+      totalVins = rows.reduce((s,r) => s + (parseFloat((r[vinsCol]||"").replace(/[^\d.]/g,"")) || 0), 0);
+    }
+
+    const maxEntries = Math.max(totalEntries, 1);
+    const cards = [
+      { num: totalEntries, lbl: "Total Reviews", pct: 1, color:"var(--amber)" },
+      { num: persons.size, lbl: "Active Reviewers", pct: Math.min(persons.size/10,1), color:"var(--teal)" },
+      { num: avgPerDay, lbl: "Avg Reviews / Day", pct: Math.min(parseFloat(avgPerDay)/20,1), color:"var(--amber)" },
+      { num: vinsCol ? totalVins : "—", lbl: "VINs Impacted", pct: vinsCol ? Math.min(totalVins/200,1) : 0, color:"var(--coral)" },
+    ];
+
+    $("kpiRow").innerHTML = cards.map(c => `
+      <div class="gauge-card">
+        ${gaugeSVG(c.pct, c.color)}
+        <div class="gauge-info">
+          <div class="num">${c.num}</div>
+          <div class="lbl">${c.lbl}</div>
+        </div>
+      </div>
+    `).join("");
+  }
+
+  // ---------- CHARTS ----------
+  function destroyChart(key){ if(state.charts[key]){ state.charts[key].destroy(); delete state.charts[key]; } }
+
+  function renderDailyChart(){
+    destroyChart("daily");
+    const dateCol = state.map.date, personCol = state.map.person;
+    if(!dateCol || !personCol) return;
+
+    const byDate = {};
+    state.filtered.forEach(r => {
+      const d = parseDate(r[dateCol]);
+      if(!d) return;
+      const key = isoDate(d);
+      const p = r[personCol] || "Unassigned";
+      byDate[key] = byDate[key] || {};
+      byDate[key][p] = (byDate[key][p]||0) + 1;
+    });
+    const dateKeys = Object.keys(byDate).sort();
+    const persons = [...new Set(state.filtered.map(r => r[personCol]).filter(Boolean))].slice(0,10);
+
+    const datasets = persons.map((p,i) => ({
+      label: p,
+      data: dateKeys.map(dk => byDate[dk][p] || 0),
+      backgroundColor: COLORS[i % COLORS.length],
+      stack: "s",
+      borderRadius: 3,
+      maxBarThickness: 28
+    }));
+
+    const ctx = document.getElementById("dailyChart").getContext("2d");
+    state.charts.daily = new Chart(ctx, {
+      type: "bar",
+      data: { labels: dateKeys.map(dk => new Date(dk).toLocaleDateString(undefined,{month:"short",day:"numeric"})), datasets },
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ position:"bottom", labels:{ color:"#8b93a3", boxWidth:10, font:{size:11} } } },
+        scales:{
+          x:{ stacked:true, ticks:{ color:"#8b93a3", font:{size:10} }, grid:{ color:"#1c222b" } },
+          y:{ stacked:true, ticks:{ color:"#8b93a3", precision:0 }, grid:{ color:"#1c222b" } }
+        }
+      }
+    });
+  }
+
+  function renderLeaderboard(){
+    destroyChart("leader");
+    const personCol = state.map.person;
+    if(!personCol) return;
+    const counts = {};
+    state.filtered.forEach(r => { const p = r[personCol]; if(p) counts[p] = (counts[p]||0)+1; });
+    const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,10);
+
+    const ctx = document.getElementById("leaderChart").getContext("2d");
+    state.charts.leader = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels: sorted.map(s=>s[0]),
+        datasets: [{ data: sorted.map(s=>s[1]), backgroundColor: "#ff9e2c", borderRadius:4, maxBarThickness:20 }]
+      },
+      options: {
+        indexAxis:"y", responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ display:false } },
+        scales:{
+          x:{ ticks:{ color:"#8b93a3", precision:0 }, grid:{ color:"#1c222b" } },
+          y:{ ticks:{ color:"#e9ecf1", font:{size:11} }, grid:{ display:false } }
+        }
+      }
+    });
+  }
+
+  function renderTypeChart(){
+    destroyChart("type");
+    const typeCol = state.map.type;
+    if(!typeCol) return;
+    const counts = {};
+    state.filtered.forEach(r => { const t = r[typeCol] || "Unspecified"; counts[t] = (counts[t]||0)+1; });
+    const entries = Object.entries(counts);
+
+    const ctx = document.getElementById("typeChart").getContext("2d");
+    state.charts.type = new Chart(ctx, {
+      type: "doughnut",
+      data: {
+        labels: entries.map(e=>e[0]),
+        datasets: [{ data: entries.map(e=>e[1]), backgroundColor: COLORS, borderColor:"#12161c", borderWidth:2 }]
+      },
+      options: {
+        responsive:true, maintainAspectRatio:false, cutout:"62%",
+        plugins:{ legend:{ position:"bottom", labels:{ color:"#8b93a3", boxWidth:10, font:{size:11} } } }
+      }
+    });
+  }
+
+  // ---------- DEEP DIVE ----------
+  function renderDeepDive(){
+    const sel = $("deepDiveSelect").value;
+    const body = $("deepDiveBody");
+    if(!sel){
+      body.innerHTML = `<p style="color:var(--text-faint);font-size:13px;">Pick a reviewer above to see their complete work log, entry count, VINs impacted, and active days.</p>`;
+      return;
+    }
+    const rows = state.filtered.filter(r => r[state.map.person] === sel);
+    const dates = new Set(rows.map(r => r[state.map.date]).filter(Boolean));
+    const typeCounts = {};
+    rows.forEach(r => { const t = r[state.map.type] || "Unspecified"; typeCounts[t] = (typeCounts[t]||0)+1; });
+    let vinsCol = state.headers.find(h => /vin/i.test(h) && /(impact|imapact)/i.test(h));
+    const totalVins = vinsCol ? rows.reduce((s,r)=> s + (parseFloat((r[vinsCol]||"").replace(/[^\d.]/g,""))||0),0) : null;
+
+    const mini = [
+      { num: rows.length, lbl: "Total Entries" },
+      { num: dates.size, lbl: "Active Days" },
+      { num: (rows.length/Math.max(dates.size,1)).toFixed(1), lbl: "Avg / Active Day" },
+      { num: totalVins !== null ? totalVins : "—", lbl: "VINs Impacted" },
+      { num: Object.keys(typeCounts).length, lbl: "Review Types Used" },
+    ];
+
+    const cols = state.headers;
+    const tableRows = rows.map(r => `<tr>${cols.map(c=>`<td title="${(r[c]||"").replace(/"/g,'&quot;')}">${r[c]||"—"}</td>`).join("")}</tr>`).join("");
+
+    body.innerHTML = `
+      <div class="mini-kpis">
+        ${mini.map(m=>`<div class="mini-kpi"><div class="num">${m.num}</div><div class="lbl">${m.lbl}</div></div>`).join("")}
+      </div>
+      <div class="table-scroll" style="max-height:320px;overflow-y:auto;">
+        <table>
+          <thead><tr>${cols.map(c=>`<th>${c}</th>`).join("")}</tr></thead>
+          <tbody>${tableRows || `<tr class="empty-row"><td colspan="${cols.length}">No entries in the selected filters.</td></tr>`}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  // ---------- MAIN TABLE ----------
+  function renderTable(){
+    const cols = state.headers;
+    $("tableHeadRow").innerHTML = cols.map(c => {
+      const arrow = state.sort.col === c ? (state.sort.dir===1?"▲":"▼") : "";
+      return `<th data-col="${c}">${c} <span class="arrow">${arrow}</span></th>`;
+    }).join("");
+
+    let rows = [...state.filtered];
+    const q = $("tableSearch").value.trim().toLowerCase();
+    if(q){
+      rows = rows.filter(r => Object.values(r).join(" ").toLowerCase().includes(q));
+    }
+    if(state.sort.col){
+      rows.sort((a,b) => {
+        const av = a[state.sort.col] || "", bv = b[state.sort.col] || "";
+        return av.localeCompare(bv, undefined, {numeric:true}) * state.sort.dir;
+      });
+    }
+
+    const totalPages = Math.max(Math.ceil(rows.length / PAGE_SIZE), 1);
+    if(state.page > totalPages) state.page = totalPages;
+    const startIdx = (state.page-1)*PAGE_SIZE;
+    const pageRows = rows.slice(startIdx, startIdx+PAGE_SIZE);
+
+    $("tableBody").innerHTML = pageRows.length ? pageRows.map(r =>
+      `<tr>${cols.map(c => `<td title="${(r[c]||"").replace(/"/g,'&quot;')}">${r[c]||"—"}</td>`).join("")}</tr>`
+    ).join("") : `<tr class="empty-row"><td colspan="${cols.length}">No records match the current filters.</td></tr>`;
+
+    $("pageInfo").textContent = rows.length ? `Showing ${startIdx+1}–${Math.min(startIdx+PAGE_SIZE,rows.length)} of ${rows.length}` : "No results";
+    $("prevPage").disabled = state.page <= 1;
+    $("nextPage").disabled = state.page >= totalPages;
+  }
+
+  // ---------- EVENTS ----------
+  syncBtn.addEventListener("click", () => fetchData(true));
+  $("errorRetry").addEventListener("click", () => fetchData(true));
+
+  ["fromDate","toDate","personFilter","typeFilter"].forEach(id => $(id).addEventListener("change", () => { setActivePreset(null); applyFiltersAndRender(); }));
+  $("globalSearch").addEventListener("input", debounce(applyFiltersAndRender, 250));
+  $("tableSearch").addEventListener("input", debounce(renderTable, 200));
+  $("deepDiveSelect").addEventListener("change", renderDeepDive);
+
+  $("resetFilters").addEventListener("click", () => {
+    $("fromDate").value = ""; $("toDate").value = "";
+    $("personFilter").value = ""; $("typeFilter").value = "";
+    $("globalSearch").value = ""; $("tableSearch").value = "";
+    setActivePreset("all");
+    applyFiltersAndRender();
+  });
+
+  document.querySelectorAll(".chip").forEach(chip => {
+    chip.addEventListener("click", () => {
+      const range = chip.dataset.range;
+      setActivePreset(range);
+      const today = new Date();
+      if(range === "all"){ $("fromDate").value = ""; $("toDate").value = ""; }
+      else if(range === "today"){ $("fromDate").value = isoDate(today); $("toDate").value = isoDate(today); }
+      else{
+        const from = new Date(today); from.setDate(from.getDate() - (parseInt(range)-1));
+        $("fromDate").value = isoDate(from); $("toDate").value = isoDate(today);
+      }
+      applyFiltersAndRender();
+    });
+  });
+  function setActivePreset(range){
+    document.querySelectorAll(".chip").forEach(c => c.classList.toggle("active", c.dataset.range === range));
+  }
+
+  $("mapDate").addEventListener("change", e => { state.map.date = e.target.value; applyFiltersAndRender(); });
+  $("mapPerson").addEventListener("change", e => { state.map.person = e.target.value; populateFilterOptions(); applyFiltersAndRender(); });
+  $("mapType").addEventListener("change", e => { state.map.type = e.target.value; populateFilterOptions(); applyFiltersAndRender(); });
+
+  document.addEventListener("click", e => {
+    const th = e.target.closest("th[data-col]");
+    if(!th) return;
+    const col = th.dataset.col;
+    state.sort.dir = (state.sort.col === col) ? -state.sort.dir : 1;
+    state.sort.col = col;
+    renderTable();
+  });
+
+  $("prevPage").addEventListener("click", () => { if(state.page>1){ state.page--; renderTable(); } });
+  $("nextPage").addEventListener("click", () => { state.page++; renderTable(); });
+
+  // ---------- BOOT ----------
+  fetchData(false);
+  refreshTimer = setInterval(() => fetchData(false), REFRESH_MS);
+})();
+</script>
+</body>
+</html>
