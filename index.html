@@ -185,6 +185,10 @@
   .table-wrap{ max-height:360px; overflow:auto; margin-top:4px; }
   .empty-state{ text-align:center; padding:40px 20px; color:var(--text-faint); font-family:var(--mono); font-size:12.5px; }
 
+  .clickable-row{ cursor:pointer; transition:background .12s ease; }
+  .clickable-row:hover{ background:var(--surface-hover); border-radius:8px; }
+  tr.clickable-row:hover{ border-radius:0; }
+
   .perf-list{ display:flex; flex-direction:column; gap:10px; margin-top:6px; }
   .perf-item{ display:flex; align-items:center; gap:12px; }
   .perf-item .name{ width:110px; font-size:12.5px; font-weight:500; flex-shrink:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -332,7 +336,9 @@
         </div>
         <div style="display:flex; gap:14px;">
           <span class="legend-chip"><span class="legend-dot" style="background:var(--teal)"></span>VINs / day</span>
-          <span class="legend-chip"><span class="legend-dot" style="background:var(--violet); border-radius:50%;"></span>7-day trend</span>
+          <span class="legend-chip"><span class="legend-dot" style="background:#f0a740; border-radius:50%;"></span>Impacted VINs</span>
+          <span class="legend-chip"><span class="legend-dot" style="background:var(--violet); border-radius:50%;"></span>Tasks</span>
+          <span class="legend-chip"><span class="legend-dot" style="background:#ef6a6a; border-radius:50%;"></span>Effort (hrs)</span>
         </div>
       </div>
       <div class="chart-box">
@@ -889,6 +895,30 @@ document.getElementById('resetBtn').addEventListener('click', ()=>{
   renderAll();
 });
 
+/* ---------- Click-to-filter: rows across the dashboard filter the whole page when clicked ---------- */
+function filterByPerson(person, isoDateStr){
+  const sel = document.getElementById('personFilter');
+  const opt = [...sel.options].find(o=>o.value === person);
+  if(opt) sel.value = person;
+  if(isoDateStr){
+    setDateRangeToSingleDay(isoDateStr); // this also calls renderAll via flatpickr onChange
+  }else{
+    renderAll();
+  }
+}
+[['perfList', null], ['leaderboardList', null], ['effortTableBody', null], ['perfTableBody', 'date']].forEach(([id, dateAttr])=>{
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.addEventListener('click', (e)=>{
+    const row = e.target.closest('.clickable-row');
+    if(!row || !el.contains(row)) return;
+    const person = row.dataset.person;
+    if(!person) return;
+    const dateStr = dateAttr ? row.dataset[dateAttr] : null;
+    filterByPerson(person, dateStr || null);
+  });
+});
+
 /* =========================================================
    RENDER: MAIN ENTRY
 ========================================================= */
@@ -949,24 +979,26 @@ function renderWorkloadChart(rows){
   const undated = rows.length - dateRows.length;
   const hintEl = document.getElementById('workloadHint');
   if(hintEl){
-    hintEl.textContent = undated > 0
-      ? `Bar = VINs handled per day · Line = 7-day trend · ${undated} row(s) skipped (unrecognized date)`
-      : 'Bar = VINs handled per day · Line = 7-day trend';
+    hintEl.textContent = (undated > 0
+      ? `Bar = VINs/day · Lines = Impacted VINs, Tasks, Effort (hrs) · ${undated} row(s) skipped (unrecognized date)`
+      : 'Bar = VINs/day · Lines = Impacted VINs, Tasks, Effort (hrs)') + ' · click a bar to drill into that day';
   }
 
   const byDate = {};
   dateRows.forEach(r=>{
     const k = isoDate(r.date);
-    byDate[k] = (byDate[k]||0) + r.vins;
+    if(!byDate[k]) byDate[k] = { vins:0, impacted:0, tasks:0, effortSec:0 };
+    byDate[k].vins += r.vins;
+    byDate[k].impacted += r.impacted;
+    byDate[k].tasks += 1;
+    const f = factorFor(r.reviewType);
+    if(f !== null) byDate[k].effortSec += f;
   });
   const dates = Object.keys(byDate).sort();
-  const values = dates.map(d=>byDate[d]);
-  // 7-day moving average trend line
-  const trend = values.map((_,i)=>{
-    const start = Math.max(0, i-6);
-    const slice = values.slice(start, i+1);
-    return +(slice.reduce((a,b)=>a+b,0)/slice.length).toFixed(1);
-  });
+  const vinsArr = dates.map(d=>byDate[d].vins);
+  const impactedArr = dates.map(d=>byDate[d].impacted);
+  const tasksArr = dates.map(d=>byDate[d].tasks);
+  const effortHrsArr = dates.map(d=>+(byDate[d].effortSec/3600).toFixed(2));
   const labels = dates.map(d=> fmtDate(new Date(d)));
 
   const ctx = document.getElementById('workloadChart');
@@ -977,24 +1009,63 @@ function renderWorkloadChart(rows){
   if(charts.workload) charts.workload.destroy();
   if(!dates.length){ renderEmptyCanvas(ctx, 'No dated rows in the current filters'); return; }
   document.getElementById('workloadChartEmpty').style.display = 'none';
+  ctx.style.cursor = 'pointer';
   charts.workload = new Chart(ctx, {
     data:{
       labels,
       datasets:[
         {
-          type:'bar', label:'VINs / day', data: values,
+          type:'bar', label:'VINs / day', data: vinsArr,
           backgroundColor:'rgba(53,208,160,0.55)', borderRadius:4, maxBarThickness:26,
-          order:2
+          order:4, yAxisID:'y'
         },
         {
-          type:'line', label:'7-day trend', data: trend,
-          borderColor:'#8c93ff', backgroundColor:'transparent', borderWidth:2.2,
-          pointRadius:0, tension:.35, order:1
+          type:'line', label:'Impacted VINs', data: impactedArr,
+          borderColor:'#f0a740', backgroundColor:'transparent', borderWidth:2,
+          pointRadius:2, pointBackgroundColor:'#f0a740', tension:.3, order:1, yAxisID:'y'
+        },
+        {
+          type:'line', label:'Tasks', data: tasksArr,
+          borderColor:'#8c93ff', backgroundColor:'transparent', borderWidth:2,
+          pointRadius:2, pointBackgroundColor:'#8c93ff', tension:.3, order:2, yAxisID:'y1'
+        },
+        {
+          type:'line', label:'Effort (hrs)', data: effortHrsArr,
+          borderColor:'#ef6a6a', backgroundColor:'transparent', borderWidth:2,
+          pointRadius:2, pointBackgroundColor:'#ef6a6a', tension:.3, order:3, yAxisID:'y1'
         }
       ]
     },
-    options: baseChartOptions({ stacked:false })
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      onClick:(evt, elements, chart)=>{
+        const points = chart.getElementsAtEventForMode(evt, 'index', { intersect:false }, false);
+        if(!points.length) return;
+        const idx = points[0].index;
+        setDateRangeToSingleDay(dates[idx]);
+      },
+      plugins:{
+        legend:{ display:false },
+        tooltip:{
+          backgroundColor:'#171c27', borderColor:'#232a39', borderWidth:1,
+          titleColor:'#e7eaf2', bodyColor:'#99a1b8', padding:10,
+          titleFont:{ family:'JetBrains Mono', size:11 }, bodyFont:{ family:'Inter', size:12 }
+        }
+      },
+      scales:{
+        x:{ grid:{ color:'rgba(255,255,255,0.03)' }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' }, maxRotation:0, autoSkip:true } },
+        y:{ position:'left', grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' } }, beginAtZero:true, title:{ display:true, text:'VINs', color:'#5c6478', font:{ size:10, family:'JetBrains Mono' } } },
+        y1:{ position:'right', grid:{ display:false }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' } }, beginAtZero:true, title:{ display:true, text:'Tasks / hrs', color:'#5c6478', font:{ size:10, family:'JetBrains Mono' } } }
+      }
+    }
   });
+}
+
+function setDateRangeToSingleDay(iso){
+  if(!fp) return;
+  const d = new Date(iso + 'T00:00:00');
+  fp.setDate([d, d], true); // true = fire onChange -> renderAll
 }
 
 function baseChartOptions(){
@@ -1043,13 +1114,27 @@ function renderReviewChart(rows){
   if(charts.review) charts.review.destroy();
   if(!labels.length){ renderEmptyCanvas(ctx, 'No data for the current filters'); return; }
   document.getElementById('reviewChartEmpty').style.display = 'none';
+  ctx.style.cursor = 'pointer';
   charts.review = new Chart(ctx, {
     type:'doughnut',
     data:{ labels, datasets:[{ data:values, backgroundColor:colors, borderColor:'#12161f', borderWidth:3 }] },
     options:{
       responsive:true, maintainAspectRatio:false, cutout:'68%',
+      onClick:(evt, elements, chart)=>{
+        if(!elements.length) return;
+        const label = chart.data.labels[elements[0].index];
+        document.getElementById('reviewFilter').value = label;
+        renderAll();
+      },
       plugins:{
-        legend:{ position:'bottom', labels:{ color:'#99a1b8', font:{ size:11, family:'Inter' }, boxWidth:9, boxHeight:9, padding:12 } },
+        legend:{
+          position:'bottom', labels:{ color:'#99a1b8', font:{ size:11, family:'Inter' }, boxWidth:9, boxHeight:9, padding:12 },
+          onClick:(evt, legendItem, legend)=>{
+            const label = legendItem.text;
+            document.getElementById('reviewFilter').value = label;
+            renderAll();
+          }
+        },
         tooltip:{ backgroundColor:'#171c27', borderColor:'#232a39', borderWidth:1, titleColor:'#e7eaf2', bodyColor:'#99a1b8', padding:10 }
       }
     }
@@ -1070,8 +1155,8 @@ function renderPerformance(rows){
   const el = document.getElementById('perfList');
   if(!list.length){ el.innerHTML = '<div class="empty-state">No activity in this range</div>'; return; }
   el.innerHTML = list.slice(0,8).map(([name, d], i)=>`
-    <div class="perf-item">
-      <div class="name" title="${name}">${name}</div>
+    <div class="perf-item clickable-row" data-person="${escapeHtml(name)}" title="Filter by ${escapeHtml(name)}">
+      <div class="name" title="${escapeHtml(name)}">${name}</div>
       <div class="perf-bar-track"><div class="perf-bar-fill" style="width:${Math.max(4,(d.vins/max*100))}%; background:${colorFor(name,i)}"></div></div>
       <div class="num">${d.vins} VINs · ${d.tasks} tasks</div>
     </div>
@@ -1114,10 +1199,10 @@ function renderLeaderboard(rows){
   const max = list.length ? list[0].scoreHrs : 1;
   const rankColors = ['#f0c419', '#c9d1e0', '#d98c4a'];
   listEl.innerHTML = list.map((d,i)=>`
-    <div class="lb-row">
+    <div class="lb-row clickable-row" data-person="${escapeHtml(d.person)}" title="Filter by ${escapeHtml(d.person)}">
       <div class="lb-rank" style="background:${rankColors[i] || 'var(--surface-2)'}; color:${i<3 ? '#0a0d13' : 'var(--text-dim)'}; border:${i<3 ? 'none' : '1px solid var(--border)'}">${i+1}</div>
       <div class="lb-person">
-        <div class="lb-name" title="${d.person}">${d.person}</div>
+        <div class="lb-name" title="${escapeHtml(d.person)}">${d.person}</div>
         <div class="lb-bar-track"><div class="lb-bar-fill" style="width:${Math.max(4, d.scoreHrs/max*100)}%; background:${colorFor(d.person,i)}"></div></div>
       </div>
       <div class="lb-stats">
@@ -1174,6 +1259,7 @@ function renderFactorChart(rows){
   document.getElementById('factorChartEmpty').style.display = 'none';
 
   if(charts.factor) charts.factor.destroy();
+  ctx.style.cursor = 'pointer';
   charts.factor = new Chart(ctx, {
     type:'bar',
     data:{
@@ -1187,6 +1273,13 @@ function renderFactorChart(rows){
     options:{
       ...baseChartOptions(),
       indexAxis:'y',
+      onClick:(evt, elements, chart)=>{
+        if(!elements.length) return;
+        const label = chart.data.labels[elements[0].index];
+        // only apply the filter if this review type actually exists in the data
+        const opt = [...document.getElementById('reviewFilter').options].find(o=>o.value === label);
+        if(opt){ document.getElementById('reviewFilter').value = label; renderAll(); }
+      },
       plugins:{ ...baseChartOptions().plugins },
       scales:{
         x:{ grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' } }, beginAtZero:true },
@@ -1230,7 +1323,7 @@ function renderEffortTable(rows){
   const tbody = document.getElementById('effortTableBody');
   if(!list.length){ tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No activity in this range</div></td></tr>'; return; }
   tbody.innerHTML = list.map((d,i)=>`
-    <tr>
+    <tr class="clickable-row" data-person="${escapeHtml(d.person)}" title="Filter by ${escapeHtml(d.person)}">
       <td>
         <div class="person-pill">
           <div class="avatar" style="background:${colorFor(d.person,i)}">${initials(d.person)}</div>
@@ -1296,7 +1389,7 @@ function renderTable(rows){
   const tbody = document.getElementById('perfTableBody');
   if(!list.length){ tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">No rows match the current filters</div></td></tr>'; return; }
   tbody.innerHTML = list.map((r,i)=>`
-    <tr>
+    <tr class="clickable-row" data-person="${escapeHtml(r.person)}" ${r.date ? `data-date="${isoDate(r.date)}"` : ''} title="Filter by ${escapeHtml(r.person)}${r.date ? ' on ' + fmtDate(r.date) : ''}">
       <td>${r.date ? fmtDate(r.date) : '<span style="color:var(--text-faint)">Unknown date</span>'}</td>
       <td>
         <div class="person-pill">
