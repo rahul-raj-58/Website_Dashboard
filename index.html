@@ -59,8 +59,9 @@
   /* ---------- Top bar ---------- */
   .topbar{
     display:flex; align-items:center; justify-content:space-between;
-    padding:22px 32px 18px 32px;
+    padding:20px 32px; position:sticky; top:0; z-index:40;
     border-bottom:1px solid var(--border-soft);
+    background:rgba(9,12,18,0.85); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
     flex-wrap:wrap; gap:14px;
   }
   .brand{ display:flex; align-items:center; gap:14px; }
@@ -107,8 +108,9 @@
   /* ---------- Filter bar ---------- */
   .filterbar{
     display:flex; align-items:flex-end; gap:14px; flex-wrap:wrap;
-    padding:18px 32px; border-bottom:1px solid var(--border-soft);
-    background:linear-gradient(180deg, rgba(255,255,255,.012), transparent);
+    padding:16px 32px; position:sticky; top:73px; z-index:39;
+    border-bottom:1px solid var(--border-soft);
+    background:rgba(11,15,22,0.85); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
   }
   .field{ display:flex; flex-direction:column; gap:6px; min-width:170px; }
   .field label{
@@ -151,11 +153,18 @@
   .grid{ display:grid; grid-template-columns:2fr 1fr; gap:20px; align-items:start; }
   .card{
     background:var(--surface); border:1px solid var(--border-soft); border-radius:var(--radius-lg);
-    padding:22px; position:relative;
+    padding:24px; position:relative; overflow:hidden;
+    box-shadow:0 1px 0 rgba(255,255,255,0.02) inset, 0 12px 28px -18px rgba(0,0,0,0.6);
+    transition:border-color .15s ease;
   }
-  .card-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; gap:10px; flex-wrap:wrap; }
-  .card-head h2{ font-family:var(--disp); font-size:15.5px; font-weight:600; }
-  .card-head .hint{ font-family:var(--mono); font-size:11px; color:var(--text-faint); }
+  .card::before{
+    content:''; position:absolute; top:0; left:0; width:100%; height:2px;
+    background:var(--card-accent, var(--border-soft));
+  }
+  .card:hover{ border-color:#262d3d; }
+  .card-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; gap:10px; flex-wrap:wrap; }
+  .card-head h2{ font-family:var(--disp); font-size:16px; font-weight:600; letter-spacing:-.01em; margin-bottom:4px; }
+  .card-head .hint{ font-family:var(--mono); font-size:11px; color:var(--text-faint); line-height:1.5; }
   .chart-box{ position:relative; height:280px; }
   .chart-box.small{ height:230px; }
 
@@ -185,9 +194,10 @@
   .table-wrap{ max-height:360px; overflow:auto; margin-top:4px; }
   .empty-state{ text-align:center; padding:40px 20px; color:var(--text-faint); font-family:var(--mono); font-size:12.5px; }
 
-  .clickable-row{ cursor:pointer; transition:background .12s ease; }
-  .clickable-row:hover{ background:var(--surface-hover); border-radius:8px; }
-  tr.clickable-row:hover{ border-radius:0; }
+  .clickable-row{ cursor:pointer; transition:background .12s ease, transform .12s ease; }
+  .clickable-row:hover{ background:var(--surface-hover); border-radius:8px; transform:translateX(2px); }
+  tr.clickable-row:hover{ border-radius:0; transform:none; }
+  tr.clickable-row:hover td:first-child{ box-shadow:inset 3px 0 0 var(--teal); }
 
   .perf-list{ display:flex; flex-direction:column; gap:10px; margin-top:6px; }
   .perf-item{ display:flex; align-items:center; gap:12px; }
@@ -327,12 +337,12 @@
   </div>
 
   <div class="grid">
-    <div class="card" style="grid-column:1 / -1;">
+    <div class="card" style="grid-column:1 / -1; --card-accent:var(--teal);">
       <div class="scanline" id="scanline1"></div>
       <div class="card-head">
         <div>
           <h2>Daily workload — VINs processed</h2>
-          <div class="hint" id="workloadHint">Bar = VINs handled per day · Line = 7-day trend</div>
+          <div class="hint" id="workloadHint">Bar = VINs/day · Lines = Impacted VINs, Tasks, Effort (hrs)</div>
         </div>
         <div style="display:flex; gap:14px;">
           <span class="legend-chip"><span class="legend-dot" style="background:var(--teal)"></span>VINs / day</span>
@@ -347,7 +357,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" style="--card-accent:#f0c419;">
       <div class="card-head">
         <div>
           <h2>Leaderboard</h2>
@@ -358,7 +368,7 @@
       <div id="leaderboardList"></div>
     </div>
 
-    <div class="card">
+    <div class="card" style="--card-accent:var(--violet);">
       <div class="scanline" id="scanline2"></div>
       <div class="card-head">
         <div>
@@ -369,7 +379,7 @@
       <div class="perf-list" id="perfList"></div>
     </div>
 
-    <div class="card">
+    <div class="card" style="--card-accent:var(--amber);">
       <div class="scanline" id="scanline3"></div>
       <div class="card-head">
         <div>
@@ -383,7 +393,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" style="--card-accent:#4fb8e8;">
       <div class="card-head">
         <div>
           <h2>Review type distribution</h2>
@@ -396,7 +406,7 @@
       </div>
     </div>
 
-    <div class="card" style="grid-column:1 / -1;">
+    <div class="card" style="grid-column:1 / -1; --card-accent:#c98cff;">
       <div class="card-head">
         <div>
           <h2>Performance by person — effort weighted</h2>
@@ -992,7 +1002,7 @@ function renderWorkloadChart(rows){
     byDate[k].impacted += r.impacted;
     byDate[k].tasks += 1;
     const f = factorFor(r.reviewType);
-    if(f !== null) byDate[k].effortSec += f;
+    if(f !== null) byDate[k].effortSec += r.vins * f;
   });
   const dates = Object.keys(byDate).sort();
   const vinsArr = dates.map(d=>byDate[d].vins);
@@ -1032,7 +1042,7 @@ function renderWorkloadChart(rows){
         {
           type:'line', label:'Effort (hrs)', data: effortHrsArr,
           borderColor:'#ef6a6a', backgroundColor:'transparent', borderWidth:2,
-          pointRadius:2, pointBackgroundColor:'#ef6a6a', tension:.3, order:3, yAxisID:'y1'
+          pointRadius:2, pointBackgroundColor:'#ef6a6a', tension:.3, order:3, yAxisID:'y2'
         }
       ]
     },
@@ -1056,7 +1066,8 @@ function renderWorkloadChart(rows){
       scales:{
         x:{ grid:{ color:'rgba(255,255,255,0.03)' }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' }, maxRotation:0, autoSkip:true } },
         y:{ position:'left', grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' } }, beginAtZero:true, title:{ display:true, text:'VINs', color:'#5c6478', font:{ size:10, family:'JetBrains Mono' } } },
-        y1:{ position:'right', grid:{ display:false }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' } }, beginAtZero:true, title:{ display:true, text:'Tasks / hrs', color:'#5c6478', font:{ size:10, family:'JetBrains Mono' } } }
+        y1:{ position:'right', grid:{ display:false }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' } }, beginAtZero:true, title:{ display:true, text:'Tasks', color:'#5c6478', font:{ size:10, family:'JetBrains Mono' } } },
+        y2:{ position:'right', display:false, beginAtZero:true } // dedicated scale for Effort (hrs) so its magnitude never squashes Tasks
       }
     }
   });
