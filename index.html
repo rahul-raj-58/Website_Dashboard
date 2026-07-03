@@ -333,6 +333,11 @@
         <div class="field"><label>"VINs" comes from</label><select id="mapVins"></select></div>
         <div class="field"><label>"Impacted VINs" comes from</label><select id="mapImpacted"></select></div>
       </div>
+      <details style="margin-top:14px;">
+        <summary style="font-size:11px;color:var(--text-faint);">🔍 Show the raw sheet response (first few rows, exactly as received)</summary>
+        <pre id="rawCsvView" style="margin-top:10px;padding:10px 12px;background:#05070a;border:1px solid var(--border);border-radius:7px;font-size:10.5px;color:var(--text-dim);overflow-x:auto;white-space:pre;max-height:160px;"></pre>
+        <p style="font-size:11px;color:var(--text-faint);margin-top:8px;">If a column looks blank here even though it has data in your sheet, the most common cause is that the column is <b>hidden</b> in Google Sheets — hidden columns are sometimes dropped from the published CSV. Try unhiding it, or Publish to web → Republish now.</p>
+      </details>
     </details>
   </div>
 
@@ -482,7 +487,8 @@
     factorHeaders: [],
     factorRows: [],
     factorMap: { type:null, value:null },
-    factors: {} // reviewType -> numeric factor
+    factors: {}, // reviewType -> numeric factor
+    rawCsvSample: ""
   };
 
   // ---------- DOM SHORTCUTS ----------
@@ -549,9 +555,11 @@
     try{
       if(!papaReady) papaReady = await loadFirstWorking(LIB_SOURCES.papa);
       if(!papaReady) throw new Error("CSV parser library failed to load from all sources");
-      const res = await fetch(CSV_URL + (CSV_URL.includes("?") ? "&" : "?") + "cachebust=" + Date.now());
+      const bust = Date.now() + "-" + Math.random().toString(36).slice(2);
+      const res = await fetch(CSV_URL + (CSV_URL.includes("?") ? "&" : "?") + "cachebust=" + bust, { cache: "no-store" });
       if(!res.ok) throw new Error("HTTP " + res.status);
       const text = await res.text();
+      state.rawCsvSample = text.slice(0, 4000);
       const parsed = Papa.parse(text, { header:true, skipEmptyLines:true });
       if(parsed.errors && parsed.errors.length && (!parsed.data || !parsed.data.length)){
         throw new Error("Could not parse sheet data");
@@ -566,6 +574,7 @@
       detectColumns();
       populateMappingSelectors();
       checkMappingHealth();
+      renderRawDebug();
       populateFilterOptions();
 
       await fetchFactors();
@@ -757,6 +766,13 @@
     fill($("mapRooftop"), state.map.rooftopName);
     fill($("mapVins"), state.map.vins);
     fill($("mapImpacted"), state.map.impactedVins);
+  }
+
+  function renderRawDebug(){
+    const el = $("rawCsvView");
+    if(!el) return;
+    const lines = state.rawCsvSample.split("\n").slice(0, 4).join("\n");
+    el.textContent = lines || "(empty response)";
   }
 
   function checkMappingHealth(){
