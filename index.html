@@ -344,17 +344,8 @@
     <div class="card">
       <div class="card-head">
         <div>
-          <h2>Daily leaderboard</h2>
-          <div class="hint">Ranked by VINs × Factor (effort-weighted score), for the selected day</div>
-        </div>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <button class="btn lb-nav-btn" id="lbPrev" title="Previous day">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-          </button>
-          <select class="lb-date-select" id="lbDateSelect"></select>
-          <button class="btn lb-nav-btn" id="lbNext" title="Next day">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
-          </button>
+          <h2>Leaderboard</h2>
+          <div class="hint">Ranked by VINs × Factor (effort-weighted score) — follows the date range filter above</div>
         </div>
       </div>
       <div class="lb-summary" id="leaderboardSummary"></div>
@@ -546,7 +537,6 @@ let factorMap = {};       // reviewType (lowercased) -> factor seconds
 let factorRawRows = [];   // raw parsed rows from the factor sheet, for diagnostics
 let factorSheetError = null;
 let effortSort = { key:'effortHrs', dir:'desc' };
-let leaderboardDate = null; // ISO date string (YYYY-MM-DD) currently shown in the daily leaderboard
 let sort = { key:'date', dir:'desc' };
 let fp = null;
 
@@ -888,13 +878,6 @@ document.getElementById('resetBtn').addEventListener('click', ()=>{
   renderAll();
 });
 
-document.getElementById('lbPrev').addEventListener('click', ()=>stepLeaderboardDate(-1));
-document.getElementById('lbNext').addEventListener('click', ()=>stepLeaderboardDate(1));
-document.getElementById('lbDateSelect').addEventListener('change', (e)=>{
-  leaderboardDate = e.target.value;
-  renderLeaderboard();
-});
-
 /* =========================================================
    RENDER: MAIN ENTRY
 ========================================================= */
@@ -908,8 +891,7 @@ function renderAll(){
   renderPerformance(rows);
   renderFactorChart(rows);
   renderEffortTable(rows);
-  populateLeaderboardDates();
-  renderLeaderboard();
+  renderLeaderboard(rows);
   renderTable(rows);
 }
 
@@ -1086,56 +1068,19 @@ function renderPerformance(rows){
 }
 
 /* ---------- Daily leaderboard: ranked by VINs × Factor for a single selected day ---------- */
-function populateLeaderboardDates(){
-  const base = getFilteredRows().filter(r=>r.date);
-  const dates = [...new Set(base.map(r=>isoDate(r.date)))].sort();
-  const sel = document.getElementById('lbDateSelect');
-  const prevValue = leaderboardDate;
-  sel.innerHTML = dates.map(d=>`<option value="${d}">${fmtDate(new Date(d))}</option>`).join('');
-  if(!dates.length){
-    leaderboardDate = null;
-    sel.disabled = true;
-    document.getElementById('lbPrev').disabled = true;
-    document.getElementById('lbNext').disabled = true;
-    return;
-  }
-  sel.disabled = false;
-  document.getElementById('lbPrev').disabled = false;
-  document.getElementById('lbNext').disabled = false;
-  leaderboardDate = (prevValue && dates.includes(prevValue)) ? prevValue : dates[dates.length - 1];
-  sel.value = leaderboardDate;
-}
-
-function stepLeaderboardDate(delta){
-  const sel = document.getElementById('lbDateSelect');
-  const dates = [...sel.options].map(o=>o.value);
-  if(!dates.length) return;
-  let idx = dates.indexOf(leaderboardDate);
-  idx = Math.min(dates.length - 1, Math.max(0, idx + delta));
-  leaderboardDate = dates[idx];
-  sel.value = leaderboardDate;
-  renderLeaderboard();
-}
-
-function renderLeaderboard(){
+function renderLeaderboard(rows){
   const listEl = document.getElementById('leaderboardList');
   const summaryEl = document.getElementById('leaderboardSummary');
 
-  if(!leaderboardDate){
-    listEl.innerHTML = '<div class="empty-state">No dated rows available for the current filters</div>';
-    summaryEl.textContent = '';
-    return;
-  }
-
-  const dayRows = getFilteredRows().filter(r => r.date && isoDate(r.date) === leaderboardDate);
-  if(!dayRows.length){
-    listEl.innerHTML = '<div class="empty-state">No activity on this day</div>';
+  const dateRows = rows.filter(r=>r.date);
+  if(!dateRows.length){
+    listEl.innerHTML = '<div class="empty-state">No dated rows match the current filters</div>';
     summaryEl.textContent = '';
     return;
   }
 
   const byPerson = {};
-  dayRows.forEach(r=>{
+  dateRows.forEach(r=>{
     byPerson[r.person] = byPerson[r.person] || { tasks:0, vins:0, scoreSec:0, unmapped:0 };
     const p = byPerson[r.person];
     p.tasks += 1;
@@ -1149,8 +1094,11 @@ function renderLeaderboard(){
     .map(([person, d]) => ({ person, ...d, scoreHrs: +(d.scoreSec/3600).toFixed(2) }))
     .sort((a,b)=> b.scoreHrs - a.scoreHrs);
 
-  const totalVins = dayRows.reduce((s,r)=>s+r.vins,0);
-  summaryEl.textContent = `${fmtDate(new Date(leaderboardDate))} · ${dayRows.length} tasks · ${totalVins} VINs · ${list.length} reviewer(s) active`;
+  const sortedDates = dateRows.map(r=>r.date).sort((a,b)=>a-b);
+  const firstIso = isoDate(sortedDates[0]), lastIso = isoDate(sortedDates[sortedDates.length-1]);
+  const rangeLabel = firstIso === lastIso ? fmtDate(sortedDates[0]) : `${fmtDate(sortedDates[0])} – ${fmtDate(sortedDates[sortedDates.length-1])}`;
+  const totalVins = dateRows.reduce((s,r)=>s+r.vins,0);
+  summaryEl.textContent = `${rangeLabel} · ${dateRows.length} tasks · ${totalVins} VINs · ${list.length} reviewer(s) active`;
 
   const max = list.length ? list[0].scoreHrs : 1;
   const rankColors = ['#f0c419', '#c9d1e0', '#d98c4a'];
