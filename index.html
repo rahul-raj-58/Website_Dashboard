@@ -379,30 +379,17 @@
       <div class="perf-list" id="perfList"></div>
     </div>
 
-    <div class="card" style="--card-accent:var(--amber);">
+    <div class="card" style="grid-column:1 / -1; --card-accent:var(--amber);">
       <div class="scanline" id="scanline3"></div>
       <div class="card-head">
         <div>
-          <h2>Effort factor by review type</h2>
-          <div class="hint" id="factorHint">Factor (seconds) per review type, from the effort-factor reference sheet</div>
+          <h2>Review type breakdown — tasks &amp; effort factor</h2>
+          <div class="hint" id="factorHint">Teal = task count (bottom axis) · Amber = factor in seconds (top axis) — click a bar to filter</div>
         </div>
       </div>
-      <div class="chart-box small">
-        <canvas id="factorChart"></canvas>
-        <div class="empty-state" id="factorChartEmpty" style="display:none; position:absolute; inset:0; align-items:center; justify-content:center;"></div>
-      </div>
-    </div>
-
-    <div class="card" style="--card-accent:#4fb8e8;">
-      <div class="card-head">
-        <div>
-          <h2>Review type distribution</h2>
-          <div class="hint">Share of tasks by review type</div>
-        </div>
-      </div>
-      <div class="chart-box small">
-        <canvas id="reviewChart"></canvas>
-        <div class="empty-state" id="reviewChartEmpty" style="display:none; position:absolute; inset:0; align-items:center; justify-content:center;"></div>
+      <div class="chart-box" style="height:340px;">
+        <canvas id="reviewEffortChart"></canvas>
+        <div class="empty-state" id="reviewEffortChartEmpty" style="display:none; position:absolute; inset:0; align-items:center; justify-content:center;"></div>
       </div>
     </div>
 
@@ -548,7 +535,7 @@ let libStatus = { papa:false, chart:false, flatpickr:false };
 ========================================================= */
 let rawRows = [];        // all parsed rows
 let lastSyncTime = null;
-let charts = { workload:null, review:null, factor:null };
+let charts = { workload:null, reviewEffort:null };
 let factorMap = {};       // reviewType (lowercased) -> factor seconds
 let factorRawRows = [];   // raw parsed rows from the factor sheet, for diagnostics
 let factorSheetError = null;
@@ -938,9 +925,8 @@ function renderAll(){
   document.getElementById('rowCountNote').textContent = rawRows.length + ' rows loaded — ' + relativeTime(lastSyncTime);
   renderKPIs(rows);
   renderWorkloadChart(rows);
-  renderReviewChart(rows);
   renderPerformance(rows);
-  renderFactorChart(rows);
+  renderReviewEffortChart(rows);
   renderEffortTable(rows);
   renderLeaderboard(rows);
   renderTable(rows);
@@ -1110,43 +1096,89 @@ function renderEmptyCanvas(canvas, message){
 }
 
 /* ---------- Review type donut ---------- */
-function renderReviewChart(rows){
-  const counts = {};
-  rows.forEach(r=>{ counts[r.reviewType] = (counts[r.reviewType]||0)+1; });
-  const labels = Object.keys(counts);
-  const values = labels.map(l=>counts[l]);
-  const colors = labels.map((l,i)=>colorFor(l,i));
+/* ---------- Review type breakdown: task count + effort factor, one chart ---------- */
+function renderReviewEffortChart(rows){
+  const hintEl = document.getElementById('factorHint');
+  const ctx = document.getElementById('reviewEffortChart');
 
-  const ctx = document.getElementById('reviewChart');
   if(typeof Chart === 'undefined'){
     renderEmptyCanvas(ctx, 'Chart library unavailable — try Sync now, or reload the page');
     return;
   }
-  if(charts.review) charts.review.destroy();
-  if(!labels.length){ renderEmptyCanvas(ctx, 'No data for the current filters'); return; }
-  document.getElementById('reviewChartEmpty').style.display = 'none';
+
+  // Task counts per review type, from the currently filtered rows
+  const taskCounts = {};
+  rows.forEach(r=>{ taskCounts[r.reviewType] = (taskCounts[r.reviewType]||0) + 1; });
+
+  // Union of review types seen in the data and review types known to the Factor sheet
+  const typesInView = new Set(Object.keys(taskCounts));
+  const allKeys = new Set([...Object.keys(factorMap), ...[...typesInView].map(normalizeKey)]);
+  const labelFor = {};
+  rows.forEach(r=> labelFor[normalizeKey(r.reviewType)] = r.reviewType);
+  factorRawRows.forEach(r=>{
+    const rt = r['Review Type'] || r['review type'];
+    if(rt) labelFor[normalizeKey(rt)] = String(rt).trim();
+  });
+
+  const entries = [...allKeys].map(k=>{
+    const label = labelFor[k] || k;
+    return { label, tasks: taskCounts[label] || 0, factor: factorMap[k] ?? null };
+  }).sort((a,b)=> b.tasks - a.tasks);
+
+  const unmapped = [...typesInView].filter(t => factorFor(t) === null);
+  if(hintEl){
+    hintEl.textContent = (unmapped.length
+      ? `Unmapped in Factor sheet: ${unmapped.join(', ')} · `
+      : '') + 'Teal = task count (bottom axis) · Amber = factor in seconds (top axis) — click a bar to filter';
+  }
+
+  if(!entries.length){ renderEmptyCanvas(ctx, 'No data for the current filters'); return; }
+  document.getElementById('reviewEffortChartEmpty').style.display = 'none';
   ctx.style.cursor = 'pointer';
-  charts.review = new Chart(ctx, {
-    type:'doughnut',
-    data:{ labels, datasets:[{ data:values, backgroundColor:colors, borderColor:'#12161f', borderWidth:3 }] },
+
+  if(charts.reviewEffort) charts.reviewEffort.destroy();
+  charts.reviewEffort = new Chart(ctx, {
+    type:'bar',
+    data:{
+      labels: entries.map(e=>e.label),
+      datasets:[
+        {
+          label:'Tasks', data: entries.map(e=>e.tasks),
+          backgroundColor:'rgba(53,208,160,0.65)', borderRadius:4, maxBarThickness:18,
+          xAxisID:'x'
+        },
+        {
+          label:'Factor (sec)', data: entries.map(e=>e.factor),
+          backgroundColor:'rgba(240,167,64,0.65)', borderRadius:4, maxBarThickness:18,
+          xAxisID:'x1'
+        }
+      ]
+    },
     options:{
-      responsive:true, maintainAspectRatio:false, cutout:'68%',
+      indexAxis:'y',
+      responsive:true, maintainAspectRatio:false,
       onClick:(evt, elements, chart)=>{
         if(!elements.length) return;
         const label = chart.data.labels[elements[0].index];
-        document.getElementById('reviewFilter').value = label;
-        renderAll();
+        const opt = [...document.getElementById('reviewFilter').options].find(o=>o.value === label);
+        if(opt){ document.getElementById('reviewFilter').value = label; renderAll(); }
       },
       plugins:{
-        legend:{
-          position:'bottom', labels:{ color:'#99a1b8', font:{ size:11, family:'Inter' }, boxWidth:9, boxHeight:9, padding:12 },
-          onClick:(evt, legendItem, legend)=>{
-            const label = legendItem.text;
-            document.getElementById('reviewFilter').value = label;
-            renderAll();
+        legend:{ position:'bottom', labels:{ color:'#99a1b8', font:{ size:11, family:'Inter' }, boxWidth:9, boxHeight:9, padding:12 } },
+        tooltip:{
+          backgroundColor:'#171c27', borderColor:'#232a39', borderWidth:1,
+          titleColor:'#e7eaf2', bodyColor:'#99a1b8', padding:10,
+          callbacks:{
+            label:(ctx)=> ctx.dataset.label === 'Factor (sec)' && ctx.raw === null
+              ? 'Factor (sec): not mapped'
+              : `${ctx.dataset.label}: ${ctx.raw}`
           }
-        },
-        tooltip:{ backgroundColor:'#171c27', borderColor:'#232a39', borderWidth:1, titleColor:'#e7eaf2', bodyColor:'#99a1b8', padding:10 }
+        }
+      },
+      scales:{
+        x:{ position:'bottom', grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#35d0a0', font:{ size:10, family:'JetBrains Mono' } }, beginAtZero:true, title:{ display:true, text:'Tasks', color:'#35d0a0', font:{ size:10, family:'JetBrains Mono' } } },
+        x1:{ position:'top', grid:{ display:false }, ticks:{ color:'#f0a740', font:{ size:10, family:'JetBrains Mono' } }, beginAtZero:true, title:{ display:true, text:'Factor (sec)', color:'#f0a740', font:{ size:10, family:'JetBrains Mono' } } },
+        y:{ grid:{ display:false }, ticks:{ color:'#99a1b8', font:{ size:11, family:'Inter' } } }
       }
     }
   });
@@ -1222,82 +1254,6 @@ function renderLeaderboard(rows){
       </div>
     </div>
   `).join('');
-}
-
-/* ---------- Effort factor by review type (from the Factor reference sheet) ---------- */
-function renderFactorChart(rows){
-  const hintEl = document.getElementById('factorHint');
-  const ctx = document.getElementById('factorChart');
-
-  if(factorSheetError && Object.keys(factorMap).length === 0){
-    if(hintEl) hintEl.textContent = 'Factor sheet could not be loaded: ' + factorSheetError;
-    renderEmptyCanvas(ctx, 'Factor reference sheet unavailable');
-    return;
-  }
-  if(Object.keys(factorMap).length === 0){
-    if(hintEl) hintEl.textContent = 'No factor data loaded yet';
-    renderEmptyCanvas(ctx, 'No factor data loaded yet');
-    return;
-  }
-  if(typeof Chart === 'undefined'){
-    renderEmptyCanvas(ctx, 'Chart library unavailable — try Sync now, or reload the page');
-    return;
-  }
-
-  // Show every review type present either in the factor sheet or in the current filtered rows
-  const typesInView = new Set(rows.map(r=>r.reviewType));
-  const allKeys = new Set([...Object.keys(factorMap), ...[...typesInView].map(normalizeKey)]);
-  const labelFor = {};
-  rows.forEach(r=> labelFor[normalizeKey(r.reviewType)] = r.reviewType);
-  factorRawRows.forEach(r=>{
-    const rt = r['Review Type'] || r['review type'];
-    if(rt) labelFor[normalizeKey(rt)] = String(rt).trim();
-  });
-
-  const entries = [...allKeys]
-    .map(k => ({ label: labelFor[k] || k, factor: factorMap[k] ?? null }))
-    .filter(e => e.factor !== null)
-    .sort((a,b)=> b.factor - a.factor);
-
-  const unmapped = [...typesInView].filter(t => factorFor(t) === null);
-  if(hintEl){
-    hintEl.textContent = unmapped.length
-      ? `Factor (seconds) per review type · unmapped in current view: ${unmapped.join(', ')}`
-      : 'Factor (seconds) per review type, from the effort-factor reference sheet';
-  }
-
-  if(!entries.length){ renderEmptyCanvas(ctx, 'No matching review types found'); return; }
-  document.getElementById('factorChartEmpty').style.display = 'none';
-
-  if(charts.factor) charts.factor.destroy();
-  ctx.style.cursor = 'pointer';
-  charts.factor = new Chart(ctx, {
-    type:'bar',
-    data:{
-      labels: entries.map(e=>e.label),
-      datasets:[{
-        label:'Factor (sec)', data: entries.map(e=>e.factor),
-        backgroundColor: entries.map((e,i)=>colorFor(e.label,i)),
-        borderRadius:5, maxBarThickness:34
-      }]
-    },
-    options:{
-      ...baseChartOptions(),
-      indexAxis:'y',
-      onClick:(evt, elements, chart)=>{
-        if(!elements.length) return;
-        const label = chart.data.labels[elements[0].index];
-        // only apply the filter if this review type actually exists in the data
-        const opt = [...document.getElementById('reviewFilter').options].find(o=>o.value === label);
-        if(opt){ document.getElementById('reviewFilter').value = label; renderAll(); }
-      },
-      plugins:{ ...baseChartOptions().plugins },
-      scales:{
-        x:{ grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' } }, beginAtZero:true },
-        y:{ grid:{ display:false }, ticks:{ color:'#99a1b8', font:{ size:11.5, family:'Inter' } } }
-      }
-    }
-  });
 }
 
 /* ---------- Performance by person, effort-weighted ---------- */
