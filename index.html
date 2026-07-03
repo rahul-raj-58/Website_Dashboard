@@ -320,17 +320,18 @@
       <span class="reset-link" id="resetFilters">Reset all</span>
     </div>
     <details class="mapping">
-      <summary>Column mapping (auto-detected — adjust if a filter looks wrong)</summary>
+      <summary>⚙ Troubleshoot column detection (only if a filter or chart looks empty — this does not filter data)</summary>
       <div id="mappingNotice" style="display:none;background:rgba(255,90,95,0.1);border:1px solid rgba(255,90,95,0.35);color:#ffb3b3;padding:8px 12px;border-radius:7px;font-size:12px;margin-top:10px;"></div>
       <div id="mappingDiagnostics" style="display:flex;flex-direction:column;gap:5px;margin-top:12px;padding:10px 12px;background:var(--panel);border:1px solid var(--border);border-radius:7px;"></div>
+      <p style="font-size:11px;color:var(--text-faint);margin:12px 0 8px;">These tell the dashboard which sheet column feeds each field below — change them only if the diagnostics above show a wrong or empty match. They don't filter your data themselves.</p>
       <div class="mapping-grid">
-        <div class="field"><label>Date column</label><select id="mapDate"></select></div>
-        <div class="field"><label>Reviewer column</label><select id="mapPerson"></select></div>
-        <div class="field"><label>Review type column</label><select id="mapType"></select></div>
-        <div class="field"><label>Enterprise name column</label><select id="mapEnterprise"></select></div>
-        <div class="field"><label>Rooftop name column</label><select id="mapRooftop"></select></div>
-        <div class="field"><label>VINs column</label><select id="mapVins"></select></div>
-        <div class="field"><label>Impacted VINs column</label><select id="mapImpacted"></select></div>
+        <div class="field"><label>"Date" comes from</label><select id="mapDate"></select></div>
+        <div class="field"><label>"Reviewer" comes from</label><select id="mapPerson"></select></div>
+        <div class="field"><label>"Review type" comes from</label><select id="mapType"></select></div>
+        <div class="field"><label>"Enterprise" comes from</label><select id="mapEnterprise"></select></div>
+        <div class="field"><label>"Rooftop" comes from</label><select id="mapRooftop"></select></div>
+        <div class="field"><label>"VINs" comes from</label><select id="mapVins"></select></div>
+        <div class="field"><label>"Impacted VINs" comes from</label><select id="mapImpacted"></select></div>
       </div>
     </details>
   </div>
@@ -497,6 +498,17 @@
     return null;
   }
 
+  function cleanCell(val){
+    val = String(val).trim();
+    // Published CSVs occasionally leak a raw =HYPERLINK("url","label") formula
+    // instead of the rendered label — pull the visible label back out.
+    const hyperlinkMatch = val.match(/^=HYPERLINK\(\s*"[^"]*"\s*,\s*"([^"]*)"\s*\)$/i);
+    if(hyperlinkMatch) return hyperlinkMatch[1].trim();
+    // Strip a lone leading apostrophe Sheets sometimes adds to force text formatting.
+    if(val.startsWith("'")) val = val.slice(1);
+    return val.trim();
+  }
+
   function parseNum(val){
     if(val === null || val === undefined) return 0;
     const n = parseFloat(String(val).replace(/[^\d.\-]/g,""));
@@ -526,7 +538,7 @@
       state.headers = (parsed.meta.fields || []).map(h => h.trim());
       state.rows = parsed.data.map(r => {
         const clean = {};
-        state.headers.forEach(h => clean[h] = (r[h] !== undefined ? String(r[h]).trim() : ""));
+        state.headers.forEach(h => clean[h] = cleanCell(r[h] !== undefined ? String(r[h]) : ""));
         return clean;
       }).filter(r => Object.values(r).some(v => v !== ""));
 
