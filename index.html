@@ -35,7 +35,7 @@
     padding:24px;
   }
   ::selection{background:var(--amber-dim);color:#fff;}
-  .wrap{max-width:1400px;margin:0 auto;display:flex;flex-direction:column;gap:18px;}
+  .wrap{max-width:1440px;margin:0 auto;display:flex;flex-direction:column;gap:18px;}
 
   /* ---------- HEADER ---------- */
   .topbar{
@@ -97,7 +97,7 @@
   .panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:20px;}
   .panel h2{
     font-family:'Space Grotesk',sans-serif;font-size:13.5px;text-transform:uppercase;letter-spacing:1.2px;
-    color:var(--text-dim);margin:0 0 16px 0;display:flex;align-items:center;gap:8px;
+    color:var(--text-dim);margin:0 0 16px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
   }
   .panel h2 .tag{
     font-family:'JetBrains Mono',monospace;font-size:10px;background:var(--panel-raised);
@@ -114,18 +114,62 @@
     outline:none;transition:border-color .15s ease;
   }
   .field input:focus, .field select:focus{border-color:var(--amber);}
-  .field input[type="date"]{color-scheme:dark;}
-  .presets{display:flex;gap:6px;flex-wrap:wrap;}
-  .chip{
-    background:var(--panel-raised);border:1px solid var(--border);color:var(--text-dim);
-    padding:7px 12px;border-radius:20px;font-size:11.5px;cursor:pointer;transition:all .15s ease;white-space:nowrap;
-  }
-  .chip:hover{border-color:var(--teal);color:var(--teal);}
-  .chip.active{background:rgba(255,158,44,0.12);border-color:var(--amber);color:var(--amber);}
   .reset-link{color:var(--text-faint);font-size:12px;cursor:pointer;text-decoration:underline;margin-left:auto;align-self:center;}
   .reset-link:hover{color:var(--coral);}
 
-  details.mapping{margin-top:4px;}
+  /* ---------- SINGLE-CALENDAR DATE RANGE PICKER ---------- */
+  .daterange-wrap{position:relative;display:flex;flex-direction:column;gap:6px;}
+  .cal-trigger{
+    display:flex;align-items:center;gap:8px;background:var(--panel-raised);border:1px solid var(--border);
+    color:var(--text);padding:9px 12px;border-radius:7px;font-size:13px;cursor:pointer;white-space:nowrap;
+    font-family:'JetBrains Mono',monospace;transition:border-color .15s ease;
+  }
+  .cal-trigger:hover{border-color:var(--amber);}
+  .cal-trigger svg{width:14px;height:14px;flex-shrink:0;color:var(--amber);}
+  .calendar-popover{
+    position:absolute;top:calc(100% + 8px);left:0;z-index:50;width:300px;
+    background:var(--panel-raised);border:1px solid var(--border);border-radius:12px;
+    box-shadow:0 20px 50px rgba(0,0,0,0.55);padding:14px;
+  }
+  .calendar-popover[hidden]{display:none;}
+  .cal-presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}
+  .chip{
+    background:var(--panel);border:1px solid var(--border);color:var(--text-dim);
+    padding:6px 11px;border-radius:20px;font-size:11px;cursor:pointer;transition:all .15s ease;white-space:nowrap;
+  }
+  .chip:hover{border-color:var(--teal);color:var(--teal);}
+  .chip.active{background:rgba(255,158,44,0.12);border-color:var(--amber);color:var(--amber);}
+  .cal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
+  .cal-header button{
+    background:transparent;border:1px solid var(--border);color:var(--text-dim);width:26px;height:26px;
+    border-radius:6px;cursor:pointer;font-size:14px;line-height:1;
+  }
+  .cal-header button:hover{border-color:var(--amber);color:var(--amber);}
+  .cal-header span{font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:600;}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;}
+  .cal-dow{font-size:9.5px;color:var(--text-faint);text-align:center;padding:4px 0;text-transform:uppercase;}
+  .cal-day{
+    text-align:center;padding:7px 0;border-radius:6px;font-size:12px;cursor:pointer;color:var(--text);
+    font-family:'JetBrains Mono',monospace;position:relative;
+  }
+  .cal-day:hover{background:rgba(255,158,44,0.15);}
+  .cal-day.muted{color:var(--text-faint);opacity:0.35;}
+  .cal-day.today{outline:1px solid var(--teal);}
+  .cal-day.in-range{background:rgba(255,158,44,0.12);border-radius:0;}
+  .cal-day.range-start{background:var(--amber);color:#1a1206;border-radius:6px 0 0 6px;font-weight:700;}
+  .cal-day.range-end{background:var(--amber);color:#1a1206;border-radius:0 6px 6px 0;font-weight:700;}
+  .cal-day.range-start.range-end{border-radius:6px;}
+  .cal-footer{display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px;}
+  .cal-footer span{font-size:11px;color:var(--text-dim);}
+  .cal-footer div{display:flex;gap:6px;}
+  .cal-footer button{
+    background:var(--panel);border:1px solid var(--border);color:var(--text);padding:7px 13px;
+    border-radius:7px;font-size:12px;cursor:pointer;
+  }
+  .cal-footer button#calApply{background:var(--amber);color:#1a1206;border-color:var(--amber);font-weight:700;}
+  .cal-footer button:hover{filter:brightness(1.1);}
+
+  details.mapping{margin-top:14px;}
   details.mapping summary{font-size:11px;color:var(--text-faint);cursor:pointer;user-select:none;}
   .mapping-grid{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;}
 
@@ -136,17 +180,37 @@
     padding:18px;display:flex;align-items:center;gap:16px;
   }
   .gauge-card svg{flex-shrink:0;}
-  .gauge-val{font-family:'JetBrains Mono',monospace;font-size:12.5px;fill:var(--text);font-weight:600;}
   .gauge-info .num{font-family:'JetBrains Mono',monospace;font-size:26px;font-weight:700;color:var(--text);line-height:1;}
   .gauge-info .lbl{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;margin-top:6px;}
-  .gauge-info .delta{font-size:11px;margin-top:4px;font-family:'JetBrains Mono',monospace;}
 
   /* ---------- CHARTS ---------- */
   .charts-row{display:grid;grid-template-columns:1.4fr 1fr;gap:16px;}
-  .chart-box{position:relative;height:280px;}
+  .chart-box{position:relative;height:300px;}
+  .chart-box.tall{height:340px;}
   @media (max-width:900px){.charts-row{grid-template-columns:1fr;}}
+  .chart-fallback-note{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:var(--text-faint);font-size:12.5px;text-align:center;padding:20px;
+  }
 
-  /* ---------- PERSON DEEP DIVE ---------- */
+  /* ---------- PERFORMANCE TABLE ---------- */
+  .perf-table-scroll{overflow-x:auto;border:1px solid var(--grid-line);border-radius:8px;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:640px;}
+  thead th{
+    background:var(--panel-raised);color:var(--text-dim);text-align:left;padding:10px 12px;
+    font-size:10.5px;text-transform:uppercase;letter-spacing:0.6px;cursor:pointer;white-space:nowrap;
+    border-bottom:1px solid var(--grid-line);position:sticky;top:0;
+  }
+  thead th:hover{color:var(--amber);}
+  thead th .arrow{opacity:0.5;margin-left:4px;font-size:9px;}
+  tbody td{padding:9px 12px;border-bottom:1px solid var(--grid-line);color:var(--text);white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis;}
+  tbody tr:hover{background:rgba(255,158,44,0.04);}
+  tbody tr:nth-child(even){background:rgba(255,255,255,0.012);}
+  .empty-row td{text-align:center;color:var(--text-faint);padding:32px;font-size:13px;}
+  .share-bar{display:inline-block;height:6px;background:var(--amber);border-radius:3px;vertical-align:middle;margin-left:8px;}
+  .rank-cell{font-family:'JetBrains Mono',monospace;color:var(--text-faint);}
+
+  /* ---------- DEEP DIVE ---------- */
   .deepdive-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px;}
   .mini-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px;}
   .mini-kpi{background:var(--panel-raised);border:1px solid var(--border);border-radius:8px;padding:12px 14px;}
@@ -159,20 +223,7 @@
     background:var(--panel-raised);border:1px solid var(--border);border-radius:7px;
     padding:9px 12px;font-size:13px;color:var(--text);min-width:220px;
   }
-  .table-scroll{overflow-x:auto;border:1px solid var(--grid-line);border-radius:8px;}
-  table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:900px;}
-  thead th{
-    background:var(--panel-raised);color:var(--text-dim);text-align:left;padding:10px 12px;
-    font-size:10.5px;text-transform:uppercase;letter-spacing:0.6px;cursor:pointer;white-space:nowrap;
-    border-bottom:1px solid var(--grid-line);position:sticky;top:0;
-  }
-  thead th:hover{color:var(--amber);}
-  thead th .arrow{opacity:0.5;margin-left:4px;font-size:9px;}
-  tbody td{padding:9px 12px;border-bottom:1px solid var(--grid-line);color:var(--text);white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis;}
-  tbody tr:hover{background:rgba(255,158,44,0.04);}
-  tbody tr:nth-child(even){background:rgba(255,255,255,0.012);}
-  .badge{padding:3px 9px;border-radius:20px;font-size:10.5px;font-family:'JetBrains Mono',monospace;background:rgba(51,199,176,0.12);color:var(--teal);border:1px solid rgba(51,199,176,0.3);}
-  .empty-row td{text-align:center;color:var(--text-faint);padding:32px;font-size:13px;}
+  .table-scroll{overflow-x:auto;border:1px solid var(--grid-line);border-radius:8px;max-height:420px;overflow-y:auto;}
   .pagination{display:flex;justify-content:space-between;align-items:center;margin-top:14px;font-size:12px;color:var(--text-dim);}
   .pagination .pg-btns{display:flex;gap:6px;}
   .pagination button{
@@ -181,13 +232,6 @@
   }
   .pagination button:disabled{opacity:0.35;cursor:not-allowed;}
   .pagination button:not(:disabled):hover{border-color:var(--amber);color:var(--amber);}
-
-  .loading-shimmer{
-    height:100%;width:100%;border-radius:8px;
-    background:linear-gradient(90deg,var(--panel-raised) 25%,#1e2530 37%,var(--panel-raised) 63%);
-    background-size:400% 100%;animation:shimmer 1.4s ease infinite;
-  }
-  @keyframes shimmer{0%{background-position:100% 50%;}100%{background-position:0 50%;}}
 
   footer{text-align:center;color:var(--text-faint);font-size:11px;padding:10px 0 4px;}
 </style>
@@ -221,20 +265,49 @@
     <button id="errorRetry">Retry</button>
   </div>
 
-  <div class="panel">
+  <div class="panel" style="overflow:visible;">
     <h2>Filters <span class="tag" id="rowCountTag">0 records</span></h2>
     <div class="filters">
-      <div class="field">
-        <label>From date</label>
-        <input type="date" id="fromDate">
-      </div>
-      <div class="field">
-        <label>To date</label>
-        <input type="date" id="toDate">
+      <div class="daterange-wrap">
+        <label style="font-size:10.5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.8px;">Date range</label>
+        <button type="button" class="cal-trigger" id="calTrigger">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+          <span id="dateRangeLabel">All time</span>
+        </button>
+        <div class="calendar-popover" id="calendarPopover" hidden>
+          <div class="cal-presets">
+            <span class="chip" data-range="today">Today</span>
+            <span class="chip" data-range="7">7 days</span>
+            <span class="chip" data-range="30">30 days</span>
+            <span class="chip" data-range="month">This month</span>
+            <span class="chip active" data-range="all">All time</span>
+          </div>
+          <div class="cal-header">
+            <button type="button" id="calPrev">‹</button>
+            <span id="calMonthLabel">—</span>
+            <button type="button" id="calNext">›</button>
+          </div>
+          <div class="cal-grid" id="calGrid"></div>
+          <div class="cal-footer">
+            <span id="calSelectedRange">Pick a start date</span>
+            <div>
+              <button type="button" id="calClear">Clear</button>
+              <button type="button" id="calApply">Apply</button>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="field">
         <label>Reviewer</label>
         <select id="personFilter"><option value="">All reviewers</option></select>
+      </div>
+      <div class="field">
+        <label>Enterprise</label>
+        <select id="enterpriseFilter"><option value="">All enterprises</option></select>
+      </div>
+      <div class="field">
+        <label>Rooftop</label>
+        <select id="rooftopFilter"><option value="">All rooftops</option></select>
       </div>
       <div class="field">
         <label>Review type</label>
@@ -242,15 +315,9 @@
       </div>
       <div class="field" style="flex:1;min-width:200px;">
         <label>Search</label>
-        <input type="text" id="globalSearch" class="search-box" placeholder="Enterprise, rooftop, VIN, remarks…" style="width:100%;">
+        <input type="text" id="globalSearch" class="search-box" placeholder="VIN, remarks…" style="width:100%;">
       </div>
       <span class="reset-link" id="resetFilters">Reset all</span>
-    </div>
-    <div class="presets" style="margin-top:12px;">
-      <span class="chip" data-range="today">Today</span>
-      <span class="chip" data-range="7">Last 7 days</span>
-      <span class="chip" data-range="30">Last 30 days</span>
-      <span class="chip active" data-range="all">All time</span>
     </div>
     <details class="mapping">
       <summary>Column mapping (auto-detected — adjust if a filter looks wrong)</summary>
@@ -259,6 +326,10 @@
         <div class="field"><label>Date column</label><select id="mapDate"></select></div>
         <div class="field"><label>Reviewer column</label><select id="mapPerson"></select></div>
         <div class="field"><label>Review type column</label><select id="mapType"></select></div>
+        <div class="field"><label>Enterprise name column</label><select id="mapEnterprise"></select></div>
+        <div class="field"><label>Rooftop name column</label><select id="mapRooftop"></select></div>
+        <div class="field"><label>VINs column</label><select id="mapVins"></select></div>
+        <div class="field"><label>Impacted VINs column</label><select id="mapImpacted"></select></div>
       </div>
     </details>
   </div>
@@ -266,18 +337,38 @@
   <div class="kpi-row" id="kpiRow"></div>
 
   <div class="panel">
-    <h2>Daily Workload <span class="tag">entries per day, by reviewer</span></h2>
-    <div class="chart-box"><canvas id="dailyChart"></canvas></div>
+    <h2>Daily Workload <span class="tag">VINs reviewed per day, with trend</span></h2>
+    <div class="chart-box tall"><canvas id="dailyChart"></canvas></div>
   </div>
 
   <div class="charts-row">
     <div class="panel">
-      <h2>Reviewer Leaderboard <span class="tag">total entries</span></h2>
+      <h2>Reviewer Leaderboard <span class="tag">total VINs handled</span></h2>
       <div class="chart-box"><canvas id="leaderChart"></canvas></div>
     </div>
     <div class="panel">
-      <h2>Review Type Mix</h2>
+      <h2>Review Type Distribution</h2>
       <div class="chart-box"><canvas id="typeChart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Reviewer Performance <span class="tag">VINs handled &amp; tasks (rows) per reviewer</span></h2>
+    <div class="perf-table-scroll">
+      <table id="perfTable">
+        <thead>
+          <tr>
+            <th data-col="rank">#</th>
+            <th data-col="person">Reviewer</th>
+            <th data-col="tasks">Tasks (rows)</th>
+            <th data-col="vins">Total VINs</th>
+            <th data-col="impacted">Impacted VINs</th>
+            <th data-col="avg">Avg VINs / Task</th>
+            <th data-col="days">Active Days</th>
+          </tr>
+        </thead>
+        <tbody id="perfBody"><tr class="empty-row"><td colspan="7">Loading…</td></tr></tbody>
+      </table>
     </div>
   </div>
 
@@ -289,7 +380,7 @@
       </div>
     </div>
     <div id="deepDiveBody">
-      <p style="color:var(--text-faint);font-size:13px;">Pick a reviewer above to see their complete work log, entry count, VINs impacted, and active days.</p>
+      <p style="color:var(--text-faint);font-size:13px;">Pick a reviewer above to see their complete work log, VINs trend, and task history.</p>
     </div>
   </div>
 
@@ -361,13 +452,14 @@
   // ---------- STATE ----------
   const state = {
     headers: [],
-    rows: [],          // array of objects keyed by original header
+    rows: [],
     filtered: [],
-    map: { date:null, person:null, type:null },
+    map: { date:null, person:null, type:null, enterpriseName:null, rooftopName:null, vins:null, impactedVins:null },
     sort: { col:null, dir:1 },
+    perfSort: { col:"vins", dir:-1 },
     page: 1,
-    activeRange: "all",
-    charts: {}
+    charts: {},
+    range: { from:null, to:null } // Date objects or null
   };
 
   // ---------- DOM SHORTCUTS ----------
@@ -376,9 +468,10 @@
   const syncBtn = $("syncBtn"), errorBanner = $("errorBanner"), errorText = $("errorText");
 
   // ---------- UTIL ----------
-  function guessColumn(headers, keywordSets){
+  function guessColumn(headers, keywordSets, exclude){
     for(const kws of keywordSets){
       const hit = headers.find(h => {
+        if(exclude && exclude.has(h)) return false;
         const low = h.toLowerCase();
         return kws.every(k => low.includes(k));
       });
@@ -396,32 +489,28 @@
     if(parts.length === 3){
       let [a,b,c] = parts.map(p => parseInt(p,10));
       if(c < 100) c += 2000;
-      // try dd/mm/yyyy
       if(a > 12){ d = new Date(c, b-1, a); if(!isNaN(d.getTime())) return d; }
-      // try mm/dd/yyyy
       d = new Date(c, a-1, b);
       if(!isNaN(d.getTime())) return d;
     }
     return null;
   }
 
-  function fmtDate(d){
-    if(!d) return "—";
-    return d.toLocaleDateString(undefined,{year:"numeric",month:"short",day:"2-digit"});
+  function parseNum(val){
+    if(val === null || val === undefined) return 0;
+    const n = parseFloat(String(val).replace(/[^\d.\-]/g,""));
+    return isNaN(n) ? 0 : n;
   }
 
-  function isoDate(d){
-    return d.toISOString().slice(0,10);
-  }
-
-  function debounce(fn, ms){
-    let t; return (...a) => { clearTimeout(t); t = setTimeout(()=>fn(...a), ms); };
-  }
+  function isoDate(d){ return d.toISOString().slice(0,10); }
+  function sameDay(a,b){ return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate(); }
+  function fmtShort(d){ return d.toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"}); }
+  function debounce(fn, ms){ let t; return (...a) => { clearTimeout(t); t = setTimeout(()=>fn(...a), ms); }; }
 
   // ---------- FETCH ----------
   let countdownTimer = null, refreshTimer = null, secondsLeft = REFRESH_MS/1000;
 
-  async function fetchData(isManual){
+  async function fetchData(){
     setSyncing(true);
     try{
       if(!papaReady) papaReady = await loadFirstWorking(LIB_SOURCES.papa);
@@ -461,40 +550,58 @@
     const used = new Set();
 
     const pick = (keywordSets, exclude) => {
-      for(const kws of keywordSets){
-        const hit = h.find(header => {
-          if(used.has(header) || (exclude && exclude.has(header))) return false;
-          const low = header.toLowerCase();
-          return kws.every(k => low.includes(k));
-        });
-        if(hit) return hit;
-      }
-      return null;
+      const r = guessColumn(h, keywordSets, exclude);
+      return r;
     };
 
     state.map.date = pick([["date"],["day"],["timestamp"]]);
     if(state.map.date) used.add(state.map.date);
 
-    // Enterprise / Rooftop name columns get excluded from the "person" guess so
-    // a generic "name" keyword doesn't grab the wrong column.
-    const enterpriseName = pick([["enterprise","name"]]);
-    const rooftopName = pick([["rooftop","name"]]);
-    const noise = new Set([enterpriseName, rooftopName].filter(Boolean));
+    state.map.enterpriseName = pick([["enterprise","name"]]);
+    if(state.map.enterpriseName) used.add(state.map.enterpriseName);
+
+    state.map.rooftopName = pick([["rooftop","name"]]);
+    if(state.map.rooftopName) used.add(state.map.rooftopName);
 
     state.map.person = pick([
       ["work","by"],["done","by"],["performed","by"],["handled","by"],["checked","by"],
       ["completed","by"],["submitted","by"],["processed","by"],
       ["reviewer"],["auditor"],["assigned"],["agent"],["analyst"],["employee"],
       ["owner"],["author"],["user"]
-    ], noise);
-    if(!state.map.person){
-      // last-resort fallback: any remaining "name" column that isn't enterprise/rooftop
-      state.map.person = pick([["name"]], noise);
-    }
+    ], used);
+    if(!state.map.person) state.map.person = pick([["name"]], used);
     if(state.map.person) used.add(state.map.person);
 
-    state.map.type = pick([["review","type"],["type"],["category"]], noise);
+    state.map.type = pick([["review","type"],["type"],["category"]], used);
     if(state.map.type) used.add(state.map.type);
+
+    // VINs / Impacted VINs — need special exclusion logic since both contain "vin"
+    let impacted = h.find(header => {
+      const l = header.toLowerCase();
+      return l.includes("vin") && (l.includes("impact") || l.includes("imapact"));
+    });
+    let vins = h.find(header => header.trim().toLowerCase() === "vins" && header !== impacted);
+    if(!vins){
+      vins = h.find(header => {
+        const l = header.toLowerCase();
+        return l.includes("vin") && header !== impacted && !l.includes("id");
+      });
+    }
+    state.map.vins = vins || null;
+    state.map.impactedVins = impacted || null;
+  }
+
+  function populateMappingSelectors(){
+    const fill = (sel, current) => {
+      sel.innerHTML = `<option value="">— none —</option>` + state.headers.map(h => `<option value="${h}" ${h===current?"selected":""}>${h}</option>`).join("");
+    };
+    fill($("mapDate"), state.map.date);
+    fill($("mapPerson"), state.map.person);
+    fill($("mapType"), state.map.type);
+    fill($("mapEnterprise"), state.map.enterpriseName);
+    fill($("mapRooftop"), state.map.rooftopName);
+    fill($("mapVins"), state.map.vins);
+    fill($("mapImpacted"), state.map.impactedVins);
   }
 
   function checkMappingHealth(){
@@ -502,23 +609,17 @@
     if(!state.map.date) missing.push("Date");
     if(!state.map.person) missing.push("Reviewer");
     if(!state.map.type) missing.push("Review type");
+    if(!state.map.enterpriseName) missing.push("Enterprise name");
+    if(!state.map.rooftopName) missing.push("Rooftop name");
+    if(!state.map.vins) missing.push("VINs");
     const notice = $("mappingNotice");
     if(missing.length){
       notice.style.display = "block";
-      notice.textContent = `Couldn't confidently detect: ${missing.join(", ")}. Pick the right column${missing.length>1?"s":""} below in "Column mapping".`;
+      notice.textContent = `Couldn't confidently detect: ${missing.join(", ")}. Pick the right column${missing.length>1?"s":""} below.`;
       document.querySelector("details.mapping").open = true;
     }else{
       notice.style.display = "none";
     }
-  }
-
-  function populateMappingSelectors(){
-    const fill = (sel, current) => {
-      sel.innerHTML = state.headers.map(h => `<option value="${h}" ${h===current?"selected":""}>${h}</option>`).join("");
-    };
-    fill($("mapDate"), state.map.date);
-    fill($("mapPerson"), state.map.person);
-    fill($("mapType"), state.map.type);
   }
 
   function setSyncing(on, success){
@@ -550,30 +651,152 @@
   // ---------- FILTER OPTIONS ----------
   function populateFilterOptions(){
     const personSel = $("personFilter"), typeSel = $("typeFilter"), ddSel = $("deepDiveSelect");
+    const entSel = $("enterpriseFilter"), roofSel = $("rooftopFilter");
     const persons = [...new Set(state.rows.map(r => r[state.map.person]).filter(Boolean))].sort();
     const types = [...new Set(state.rows.map(r => r[state.map.type]).filter(Boolean))].sort();
+    const enterprises = [...new Set(state.rows.map(r => r[state.map.enterpriseName]).filter(Boolean))].sort();
+
+    const selectedEnt = entSel.value;
+    let rooftops;
+    if(selectedEnt && state.map.enterpriseName){
+      rooftops = [...new Set(state.rows.filter(r => r[state.map.enterpriseName] === selectedEnt).map(r => r[state.map.rooftopName]).filter(Boolean))].sort();
+    }else{
+      rooftops = [...new Set(state.rows.map(r => r[state.map.rooftopName]).filter(Boolean))].sort();
+    }
+
     personSel.innerHTML = `<option value="">All reviewers</option>` + persons.map(p=>`<option value="${p}">${p}</option>`).join("");
     typeSel.innerHTML = `<option value="">All types</option>` + types.map(t=>`<option value="${t}">${t}</option>`).join("");
+    entSel.innerHTML = `<option value="">All enterprises</option>` + enterprises.map(e=>`<option value="${e}" ${e===selectedEnt?"selected":""}>${e}</option>`).join("");
+    const selectedRoof = roofSel.value;
+    roofSel.innerHTML = `<option value="">All rooftops</option>` + rooftops.map(r=>`<option value="${r}" ${r===selectedRoof?"selected":""}>${r}</option>`).join("");
     ddSel.innerHTML = `<option value="">Select a reviewer…</option>` + persons.map(p=>`<option value="${p}">${p}</option>`).join("");
   }
 
+  // ---------- SINGLE-CALENDAR DATE RANGE PICKER ----------
+  const calState = { viewYear: new Date().getFullYear(), viewMonth: new Date().getMonth(), pickStart: null, pickEnd: null };
+  const calPopover = $("calendarPopover"), calTrigger = $("calTrigger");
+
+  function renderCalendarLabel(){
+    const { from, to } = state.range;
+    if(!from && !to){ $("dateRangeLabel").textContent = "All time"; return; }
+    if(from && to){ $("dateRangeLabel").textContent = sameDay(from,to) ? fmtShort(from) : `${fmtShort(from)} – ${fmtShort(to)}`; return; }
+    $("dateRangeLabel").textContent = fmtShort(from || to);
+  }
+
+  function renderCalendarGrid(){
+    const { viewYear, viewMonth } = calState;
+    $("calMonthLabel").textContent = new Date(viewYear, viewMonth, 1).toLocaleDateString(undefined,{month:"long",year:"numeric"});
+    const grid = $("calGrid");
+    grid.innerHTML = "";
+    ["Su","Mo","Tu","We","Th","Fr","Sa"].forEach(d => {
+      const el = document.createElement("div"); el.className = "cal-dow"; el.textContent = d; grid.appendChild(el);
+    });
+    const firstDow = new Date(viewYear, viewMonth, 1).getDay();
+    const daysInMonth = new Date(viewYear, viewMonth+1, 0).getDate();
+    const daysInPrevMonth = new Date(viewYear, viewMonth, 0).getDate();
+    const today = new Date();
+    const cells = [];
+    for(let i=firstDow-1;i>=0;i--) cells.push({ d: daysInPrevMonth-i, muted:true, date: new Date(viewYear, viewMonth-1, daysInPrevMonth-i) });
+    for(let i=1;i<=daysInMonth;i++) cells.push({ d:i, muted:false, date: new Date(viewYear, viewMonth, i) });
+    while(cells.length % 7 !== 0) { const n = cells.length - (firstDow+daysInMonth); cells.push({ d: n+1, muted:true, date: new Date(viewYear, viewMonth+1, cells.length-(firstDow+daysInMonth)+1) }); }
+
+    cells.forEach(c => {
+      const el = document.createElement("div");
+      el.className = "cal-day" + (c.muted ? " muted" : "");
+      if(sameDay(c.date, today)) el.classList.add("today");
+      if(calState.pickStart && sameDay(c.date, calState.pickStart)) el.classList.add("range-start");
+      if(calState.pickEnd && sameDay(c.date, calState.pickEnd)) el.classList.add("range-end");
+      if(calState.pickStart && calState.pickEnd && c.date > calState.pickStart && c.date < calState.pickEnd) el.classList.add("in-range");
+      el.textContent = c.d;
+      el.addEventListener("click", () => onCalDayClick(c.date));
+      grid.appendChild(el);
+    });
+  }
+
+  function onCalDayClick(date){
+    if(!calState.pickStart || (calState.pickStart && calState.pickEnd)){
+      calState.pickStart = date; calState.pickEnd = null;
+      $("calSelectedRange").textContent = "Pick an end date";
+    }else{
+      if(date < calState.pickStart){ calState.pickEnd = calState.pickStart; calState.pickStart = date; }
+      else{ calState.pickEnd = date; }
+      $("calSelectedRange").textContent = `${fmtShort(calState.pickStart)} – ${fmtShort(calState.pickEnd)}`;
+    }
+    setActivePresetChip(null);
+    renderCalendarGrid();
+  }
+
+  function openCalendar(){
+    calState.pickStart = state.range.from; calState.pickEnd = state.range.to;
+    const anchor = state.range.to || state.range.from || new Date();
+    calState.viewYear = anchor.getFullYear(); calState.viewMonth = anchor.getMonth();
+    $("calSelectedRange").textContent = calState.pickStart ? (calState.pickEnd ? `${fmtShort(calState.pickStart)} – ${fmtShort(calState.pickEnd)}` : fmtShort(calState.pickStart)) : "Pick a start date";
+    renderCalendarGrid();
+    calPopover.hidden = false;
+  }
+  function closeCalendar(){ calPopover.hidden = true; }
+
+  calTrigger.addEventListener("click", (e) => { e.stopPropagation(); calPopover.hidden ? openCalendar() : closeCalendar(); });
+  document.addEventListener("click", (e) => { if(!calPopover.hidden && !e.target.closest(".daterange-wrap")) closeCalendar(); });
+  $("calPrev").addEventListener("click", () => { calState.viewMonth--; if(calState.viewMonth<0){calState.viewMonth=11;calState.viewYear--;} renderCalendarGrid(); });
+  $("calNext").addEventListener("click", () => { calState.viewMonth++; if(calState.viewMonth>11){calState.viewMonth=0;calState.viewYear++;} renderCalendarGrid(); });
+  $("calApply").addEventListener("click", () => {
+    state.range.from = calState.pickStart;
+    state.range.to = calState.pickEnd || calState.pickStart;
+    if(state.range.to) state.range.to.setHours(23,59,59,999);
+    renderCalendarLabel();
+    closeCalendar();
+    applyFiltersAndRender();
+  });
+  $("calClear").addEventListener("click", () => {
+    state.range.from = null; state.range.to = null;
+    calState.pickStart = null; calState.pickEnd = null;
+    setActivePresetChip("all");
+    renderCalendarLabel();
+    closeCalendar();
+    applyFiltersAndRender();
+  });
+  function setActivePresetChip(range){
+    document.querySelectorAll("#calendarPopover .chip").forEach(c => c.classList.toggle("active", c.dataset.range === range));
+  }
+  document.querySelectorAll("#calendarPopover .chip").forEach(chip => {
+    chip.addEventListener("click", () => {
+      const range = chip.dataset.range;
+      setActivePresetChip(range);
+      const today = new Date();
+      if(range === "all"){ state.range.from = null; state.range.to = null; }
+      else if(range === "today"){ const d0=new Date(today); d0.setHours(0,0,0,0); const d1=new Date(today); d1.setHours(23,59,59,999); state.range.from=d0; state.range.to=d1; }
+      else if(range === "month"){ state.range.from = new Date(today.getFullYear(), today.getMonth(), 1); const d1=new Date(today); d1.setHours(23,59,59,999); state.range.to=d1; }
+      else{
+        const from = new Date(today); from.setDate(from.getDate() - (parseInt(range)-1)); from.setHours(0,0,0,0);
+        const to = new Date(today); to.setHours(23,59,59,999);
+        state.range.from = from; state.range.to = to;
+      }
+      renderCalendarLabel();
+      closeCalendar();
+      applyFiltersAndRender();
+    });
+  });
+
   // ---------- FILTERING ----------
   function applyFiltersAndRender(){
-    const from = $("fromDate").value ? new Date($("fromDate").value) : null;
-    const to = $("toDate").value ? new Date($("toDate").value) : null;
-    if(to) to.setHours(23,59,59,999);
     const person = $("personFilter").value;
     const type = $("typeFilter").value;
+    const enterprise = $("enterpriseFilter").value;
+    const rooftop = $("rooftopFilter").value;
     const search = $("globalSearch").value.trim().toLowerCase();
+    const { from, to } = state.range;
 
     state.filtered = state.rows.filter(r => {
-      if(state.map.date){
+      if(state.map.date && (from || to)){
         const d = parseDate(r[state.map.date]);
         if(from && d && d < from) return false;
         if(to && d && d > to) return false;
       }
       if(person && r[state.map.person] !== person) return false;
       if(type && r[state.map.type] !== type) return false;
+      if(enterprise && r[state.map.enterpriseName] !== enterprise) return false;
+      if(rooftop && r[state.map.rooftopName] !== rooftop) return false;
       if(search){
         const hay = Object.values(r).join(" ").toLowerCase();
         if(!hay.includes(search)) return false;
@@ -587,6 +810,7 @@
     renderDailyChart();
     renderLeaderboard();
     renderTypeChart();
+    renderPerformanceTable();
     renderDeepDive();
     state.page = 1;
     renderTable();
@@ -605,23 +829,16 @@
 
   function renderKPIs(){
     const rows = state.filtered;
-    const totalEntries = rows.length;
+    const totalTasks = rows.length;
     const persons = new Set(rows.map(r => r[state.map.person]).filter(Boolean));
-    const dates = [...new Set(rows.map(r => r[state.map.date]).filter(Boolean))];
-    const avgPerDay = dates.length ? (totalEntries/dates.length).toFixed(1) : "0.0";
+    const totalVins = state.map.vins ? rows.reduce((s,r)=> s + parseNum(r[state.map.vins]), 0) : null;
+    const totalImpacted = state.map.impactedVins ? rows.reduce((s,r)=> s + parseNum(r[state.map.impactedVins]), 0) : null;
 
-    let vinsCol = state.headers.find(h => /vin/i.test(h) && /(impact|imapact)/i.test(h));
-    let totalVins = 0;
-    if(vinsCol){
-      totalVins = rows.reduce((s,r) => s + (parseFloat((r[vinsCol]||"").replace(/[^\d.]/g,"")) || 0), 0);
-    }
-
-    const maxEntries = Math.max(totalEntries, 1);
     const cards = [
-      { num: totalEntries, lbl: "Total Reviews", pct: 1, color:"var(--amber)" },
-      { num: state.map.person ? persons.size : "—", lbl: "Active Reviewers", pct: state.map.person ? Math.min(persons.size/10,1) : 0, color:"var(--teal)" },
-      { num: avgPerDay, lbl: "Avg Reviews / Day", pct: Math.min(parseFloat(avgPerDay)/20,1), color:"var(--amber)" },
-      { num: vinsCol ? totalVins : "—", lbl: "VINs Impacted", pct: vinsCol ? Math.min(totalVins/200,1) : 0, color:"var(--coral)" },
+      { num: totalTasks, lbl: "Total Tasks (Rows)", pct: 1, color:"var(--amber)" },
+      { num: totalVins !== null ? totalVins.toLocaleString() : "—", lbl: "Total VINs Reviewed", pct: totalVins !== null ? Math.min(totalVins/2000,1) : 0, color:"var(--teal)" },
+      { num: totalImpacted !== null ? totalImpacted.toLocaleString() : "—", lbl: "Impacted VINs", pct: totalImpacted !== null ? Math.min(totalImpacted/500,1) : 0, color:"var(--coral)" },
+      { num: state.map.person ? persons.size : "—", lbl: "Active Reviewers", pct: state.map.person ? Math.min(persons.size/10,1) : 0, color:"var(--amber)" },
     ];
 
     $("kpiRow").innerHTML = cards.map(c => `
@@ -646,7 +863,6 @@
     if(!note){
       note = document.createElement("div");
       note.className = "chart-fallback-note";
-      note.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:12.5px;text-align:center;padding:20px;";
       box.appendChild(note);
     }
     note.textContent = message || "Charts couldn't load (network to CDN blocked). Filters, KPIs and tables below still work.";
@@ -661,10 +877,18 @@
     canvas.style.display = "block";
   }
 
+  function movingAverage(arr, window){
+    return arr.map((_, i) => {
+      const start = Math.max(0, i-window+1);
+      const slice = arr.slice(start, i+1);
+      return slice.reduce((a,b)=>a+b,0) / slice.length;
+    });
+  }
+
   function renderDailyChart(){
     if(!chartReady){ chartsUnavailableNotice("dailyChart"); return; }
-    const dateCol = state.map.date, personCol = state.map.person;
-    if(!dateCol || !personCol){ chartsUnavailableNotice("dailyChart", "Set the Date and Reviewer columns in Column Mapping above to see this chart."); destroyChart("daily"); return; }
+    const dateCol = state.map.date, vinsCol = state.map.vins;
+    if(!dateCol || !vinsCol){ chartsUnavailableNotice("dailyChart", "Set the Date and VINs columns in Column Mapping above to see this chart."); destroyChart("daily"); return; }
     hideChartNotice("dailyChart");
     destroyChart("daily");
 
@@ -673,32 +897,27 @@
       const d = parseDate(r[dateCol]);
       if(!d) return;
       const key = isoDate(d);
-      const p = r[personCol] || "Unassigned";
-      byDate[key] = byDate[key] || {};
-      byDate[key][p] = (byDate[key][p]||0) + 1;
+      byDate[key] = (byDate[key] || 0) + parseNum(r[vinsCol]);
     });
     const dateKeys = Object.keys(byDate).sort();
-    const persons = [...new Set(state.filtered.map(r => r[personCol]).filter(Boolean))].slice(0,10);
-
-    const datasets = persons.map((p,i) => ({
-      label: p,
-      data: dateKeys.map(dk => byDate[dk][p] || 0),
-      backgroundColor: COLORS[i % COLORS.length],
-      stack: "s",
-      borderRadius: 3,
-      maxBarThickness: 28
-    }));
+    const values = dateKeys.map(dk => byDate[dk]);
+    const trend = movingAverage(values, Math.min(3, values.length || 1));
 
     const ctx = document.getElementById("dailyChart").getContext("2d");
     state.charts.daily = new Chart(ctx, {
-      type: "bar",
-      data: { labels: dateKeys.map(dk => new Date(dk).toLocaleDateString(undefined,{month:"short",day:"numeric"})), datasets },
+      data: {
+        labels: dateKeys.map(dk => new Date(dk).toLocaleDateString(undefined,{month:"short",day:"numeric"})),
+        datasets: [
+          { type:"bar", label:"VINs / day", data: values, backgroundColor:"#ff9e2c", borderRadius:4, maxBarThickness:28, order:2 },
+          { type:"line", label:"Trend (3-day avg)", data: trend, borderColor:"#33c7b0", backgroundColor:"transparent", borderWidth:2.5, tension:0.35, pointRadius:2, pointBackgroundColor:"#33c7b0", order:1 }
+        ]
+      },
       options: {
         responsive:true, maintainAspectRatio:false,
         plugins:{ legend:{ position:"bottom", labels:{ color:"#8b93a3", boxWidth:10, font:{size:11} } } },
         scales:{
-          x:{ stacked:true, ticks:{ color:"#8b93a3", font:{size:10} }, grid:{ color:"#1c222b" } },
-          y:{ stacked:true, ticks:{ color:"#8b93a3", precision:0 }, grid:{ color:"#1c222b" } }
+          x:{ ticks:{ color:"#8b93a3", font:{size:10} }, grid:{ color:"#1c222b" } },
+          y:{ ticks:{ color:"#8b93a3", precision:0 }, grid:{ color:"#1c222b" }, beginAtZero:true }
         }
       }
     });
@@ -706,13 +925,14 @@
 
   function renderLeaderboard(){
     if(!chartReady){ chartsUnavailableNotice("leaderChart"); return; }
-    const personCol = state.map.person;
-    if(!personCol){ chartsUnavailableNotice("leaderChart", "Set the Reviewer column in Column Mapping above to see this chart."); destroyChart("leader"); return; }
+    const personCol = state.map.person, vinsCol = state.map.vins;
+    if(!personCol || !vinsCol){ chartsUnavailableNotice("leaderChart", "Set the Reviewer and VINs columns in Column Mapping above to see this chart."); destroyChart("leader"); return; }
     hideChartNotice("leaderChart");
     destroyChart("leader");
-    const counts = {};
-    state.filtered.forEach(r => { const p = r[personCol]; if(p) counts[p] = (counts[p]||0)+1; });
-    const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,10);
+
+    const totals = {};
+    state.filtered.forEach(r => { const p = r[personCol]; if(p) totals[p] = (totals[p]||0) + parseNum(r[vinsCol]); });
+    const sorted = Object.entries(totals).sort((a,b)=>b[1]-a[1]).slice(0,10);
 
     const ctx = document.getElementById("leaderChart").getContext("2d");
     state.charts.leader = new Chart(ctx, {
@@ -738,6 +958,7 @@
     if(!typeCol){ chartsUnavailableNotice("typeChart", "Set the Review type column in Column Mapping above to see this chart."); destroyChart("type"); return; }
     hideChartNotice("typeChart");
     destroyChart("type");
+
     const counts = {};
     state.filtered.forEach(r => { const t = r[typeCol] || "Unspecified"; counts[t] = (counts[t]||0)+1; });
     const entries = Object.entries(counts);
@@ -756,27 +977,77 @@
     });
   }
 
+  // ---------- PERFORMANCE TABLE ----------
+  function buildPerformanceRows(){
+    const personCol = state.map.person, vinsCol = state.map.vins, impactedCol = state.map.impactedVins, dateCol = state.map.date;
+    if(!personCol) return [];
+    const agg = {};
+    state.filtered.forEach(r => {
+      const p = r[personCol]; if(!p) return;
+      if(!agg[p]) agg[p] = { person:p, tasks:0, vins:0, impacted:0, days:new Set() };
+      agg[p].tasks++;
+      if(vinsCol) agg[p].vins += parseNum(r[vinsCol]);
+      if(impactedCol) agg[p].impacted += parseNum(r[impactedCol]);
+      if(dateCol && r[dateCol]) agg[p].days.add(r[dateCol]);
+    });
+    return Object.values(agg).map(a => ({
+      person:a.person, tasks:a.tasks, vins:a.vins, impacted:a.impacted,
+      avg: a.tasks ? (a.vins/a.tasks) : 0, days: a.days.size
+    }));
+  }
+
+  function renderPerformanceTable(){
+    const rows = buildPerformanceRows();
+    const body = $("perfBody");
+    if(!rows.length){
+      body.innerHTML = `<tr class="empty-row"><td colspan="7">No reviewer data for the current filters.</td></tr>`;
+      return;
+    }
+    const { col, dir } = state.perfSort;
+    rows.sort((a,b) => (a[col] > b[col] ? 1 : a[col] < b[col] ? -1 : 0) * dir);
+    const maxVins = Math.max(...rows.map(r=>r.vins), 1);
+    body.innerHTML = rows.map((r,i) => `
+      <tr>
+        <td class="rank-cell">${i+1}</td>
+        <td>${r.person}</td>
+        <td>${r.tasks}</td>
+        <td>${r.vins.toLocaleString()}<span class="share-bar" style="width:${Math.max(6,(r.vins/maxVins)*60)}px;"></span></td>
+        <td>${r.impacted.toLocaleString()}</td>
+        <td>${r.avg.toFixed(1)}</td>
+        <td>${r.days}</td>
+      </tr>
+    `).join("");
+  }
+
+  document.querySelectorAll("#perfTable thead th[data-col]").forEach(th => {
+    th.addEventListener("click", () => {
+      const col = th.dataset.col;
+      if(col === "rank") return;
+      state.perfSort.dir = (state.perfSort.col === col) ? -state.perfSort.dir : -1;
+      state.perfSort.col = col;
+      renderPerformanceTable();
+    });
+  });
+
   // ---------- DEEP DIVE ----------
   function renderDeepDive(){
     const sel = $("deepDiveSelect").value;
     const body = $("deepDiveBody");
     if(!sel){
-      body.innerHTML = `<p style="color:var(--text-faint);font-size:13px;">Pick a reviewer above to see their complete work log, entry count, VINs impacted, and active days.</p>`;
+      body.innerHTML = `<p style="color:var(--text-faint);font-size:13px;">Pick a reviewer above to see their complete work log, VINs trend, and task history.</p>`;
       return;
     }
     const rows = state.filtered.filter(r => r[state.map.person] === sel);
     const dates = new Set(rows.map(r => r[state.map.date]).filter(Boolean));
-    const typeCounts = {};
-    rows.forEach(r => { const t = r[state.map.type] || "Unspecified"; typeCounts[t] = (typeCounts[t]||0)+1; });
-    let vinsCol = state.headers.find(h => /vin/i.test(h) && /(impact|imapact)/i.test(h));
-    const totalVins = vinsCol ? rows.reduce((s,r)=> s + (parseFloat((r[vinsCol]||"").replace(/[^\d.]/g,""))||0),0) : null;
+    const totalVins = state.map.vins ? rows.reduce((s,r)=> s + parseNum(r[state.map.vins]), 0) : null;
+    const totalImpacted = state.map.impactedVins ? rows.reduce((s,r)=> s + parseNum(r[state.map.impactedVins]), 0) : null;
 
     const mini = [
-      { num: rows.length, lbl: "Total Entries" },
+      { num: rows.length, lbl: "Total Tasks" },
       { num: dates.size, lbl: "Active Days" },
-      { num: (rows.length/Math.max(dates.size,1)).toFixed(1), lbl: "Avg / Active Day" },
-      { num: totalVins !== null ? totalVins : "—", lbl: "VINs Impacted" },
-      { num: Object.keys(typeCounts).length, lbl: "Review Types Used" },
+      { num: totalVins !== null ? totalVins.toLocaleString() : "—", lbl: "Total VINs" },
+      { num: totalImpacted !== null ? totalImpacted.toLocaleString() : "—", lbl: "Impacted VINs" },
+      { num: (rows.length/Math.max(dates.size,1)).toFixed(1), lbl: "Tasks / Active Day" },
     ];
 
     const cols = state.headers;
@@ -786,13 +1057,41 @@
       <div class="mini-kpis">
         ${mini.map(m=>`<div class="mini-kpi"><div class="num">${m.num}</div><div class="lbl">${m.lbl}</div></div>`).join("")}
       </div>
-      <div class="table-scroll" style="max-height:320px;overflow-y:auto;">
+      <div class="chart-box" style="height:220px;margin-bottom:16px;"><canvas id="deepDiveChart"></canvas></div>
+      <div class="table-scroll" style="max-height:320px;">
         <table>
           <thead><tr>${cols.map(c=>`<th>${c}</th>`).join("")}</tr></thead>
           <tbody>${tableRows || `<tr class="empty-row"><td colspan="${cols.length}">No entries in the selected filters.</td></tr>`}</tbody>
         </table>
       </div>
     `;
+
+    if(chartReady && state.map.date && state.map.vins){
+      destroyChart("deepdive");
+      const byDate = {};
+      rows.forEach(r => { const d = parseDate(r[state.map.date]); if(!d) return; const k = isoDate(d); byDate[k] = (byDate[k]||0) + parseNum(r[state.map.vins]); });
+      const keys = Object.keys(byDate).sort();
+      const vals = keys.map(k=>byDate[k]);
+      const trend = movingAverage(vals, Math.min(3, vals.length || 1));
+      const ctx = document.getElementById("deepDiveChart").getContext("2d");
+      state.charts.deepdive = new Chart(ctx, {
+        data: {
+          labels: keys.map(k => new Date(k).toLocaleDateString(undefined,{month:"short",day:"numeric"})),
+          datasets: [
+            { type:"bar", label:"VINs / day", data:vals, backgroundColor:"#33c7b0", borderRadius:4, maxBarThickness:24, order:2 },
+            { type:"line", label:"Trend", data:trend, borderColor:"#ff9e2c", borderWidth:2, tension:0.35, pointRadius:2, order:1 }
+          ]
+        },
+        options: {
+          responsive:true, maintainAspectRatio:false,
+          plugins:{ legend:{ position:"bottom", labels:{ color:"#8b93a3", boxWidth:10, font:{size:10} } } },
+          scales:{
+            x:{ ticks:{ color:"#8b93a3", font:{size:9} }, grid:{ color:"#1c222b" } },
+            y:{ ticks:{ color:"#8b93a3", precision:0 }, grid:{ color:"#1c222b" }, beginAtZero:true }
+          }
+        }
+      });
+    }
   }
 
   // ---------- MAIN TABLE ----------
@@ -830,46 +1129,36 @@
   }
 
   // ---------- EVENTS ----------
-  syncBtn.addEventListener("click", () => fetchData(true));
-  $("errorRetry").addEventListener("click", () => fetchData(true));
+  syncBtn.addEventListener("click", () => fetchData());
+  $("errorRetry").addEventListener("click", () => fetchData());
 
-  ["fromDate","toDate","personFilter","typeFilter"].forEach(id => $(id).addEventListener("change", () => { setActivePreset(null); applyFiltersAndRender(); }));
+  ["personFilter","typeFilter"].forEach(id => $(id).addEventListener("change", applyFiltersAndRender));
+  $("enterpriseFilter").addEventListener("change", () => { populateFilterOptions(); applyFiltersAndRender(); });
+  $("rooftopFilter").addEventListener("change", applyFiltersAndRender);
   $("globalSearch").addEventListener("input", debounce(applyFiltersAndRender, 250));
   $("tableSearch").addEventListener("input", debounce(renderTable, 200));
   $("deepDiveSelect").addEventListener("change", renderDeepDive);
 
   $("resetFilters").addEventListener("click", () => {
-    $("fromDate").value = ""; $("toDate").value = "";
-    $("personFilter").value = ""; $("typeFilter").value = "";
+    $("personFilter").value = ""; $("typeFilter").value = ""; $("enterpriseFilter").value = ""; $("rooftopFilter").value = "";
     $("globalSearch").value = ""; $("tableSearch").value = "";
-    setActivePreset("all");
+    state.range.from = null; state.range.to = null;
+    setActivePresetChip("all");
+    renderCalendarLabel();
+    populateFilterOptions();
     applyFiltersAndRender();
   });
 
-  document.querySelectorAll(".chip").forEach(chip => {
-    chip.addEventListener("click", () => {
-      const range = chip.dataset.range;
-      setActivePreset(range);
-      const today = new Date();
-      if(range === "all"){ $("fromDate").value = ""; $("toDate").value = ""; }
-      else if(range === "today"){ $("fromDate").value = isoDate(today); $("toDate").value = isoDate(today); }
-      else{
-        const from = new Date(today); from.setDate(from.getDate() - (parseInt(range)-1));
-        $("fromDate").value = isoDate(from); $("toDate").value = isoDate(today);
-      }
-      applyFiltersAndRender();
-    });
-  });
-  function setActivePreset(range){
-    document.querySelectorAll(".chip").forEach(c => c.classList.toggle("active", c.dataset.range === range));
-  }
-
-  $("mapDate").addEventListener("change", e => { state.map.date = e.target.value; checkMappingHealth(); applyFiltersAndRender(); });
-  $("mapPerson").addEventListener("change", e => { state.map.person = e.target.value; checkMappingHealth(); populateFilterOptions(); applyFiltersAndRender(); });
-  $("mapType").addEventListener("change", e => { state.map.type = e.target.value; checkMappingHealth(); populateFilterOptions(); applyFiltersAndRender(); });
+  $("mapDate").addEventListener("change", e => { state.map.date = e.target.value || null; checkMappingHealth(); applyFiltersAndRender(); });
+  $("mapPerson").addEventListener("change", e => { state.map.person = e.target.value || null; checkMappingHealth(); populateFilterOptions(); applyFiltersAndRender(); });
+  $("mapType").addEventListener("change", e => { state.map.type = e.target.value || null; checkMappingHealth(); populateFilterOptions(); applyFiltersAndRender(); });
+  $("mapEnterprise").addEventListener("change", e => { state.map.enterpriseName = e.target.value || null; checkMappingHealth(); populateFilterOptions(); applyFiltersAndRender(); });
+  $("mapRooftop").addEventListener("change", e => { state.map.rooftopName = e.target.value || null; checkMappingHealth(); populateFilterOptions(); applyFiltersAndRender(); });
+  $("mapVins").addEventListener("change", e => { state.map.vins = e.target.value || null; checkMappingHealth(); applyFiltersAndRender(); });
+  $("mapImpacted").addEventListener("change", e => { state.map.impactedVins = e.target.value || null; applyFiltersAndRender(); });
 
   document.addEventListener("click", e => {
-    const th = e.target.closest("th[data-col]");
+    const th = e.target.closest("#dataTable th[data-col]");
     if(!th) return;
     const col = th.dataset.col;
     state.sort.dir = (state.sort.col === col) ? -state.sort.dir : 1;
@@ -881,12 +1170,13 @@
   $("nextPage").addEventListener("click", () => { state.page++; renderTable(); });
 
   // ---------- BOOT ----------
+  renderCalendarLabel();
   loadFirstWorking(LIB_SOURCES.chart).then(ok => {
     chartReady = ok;
-    if(ok) applyFiltersAndRender(); // re-render so charts populate once the library arrives
+    if(ok) applyFiltersAndRender();
   });
-  fetchData(false);
-  refreshTimer = setInterval(() => fetchData(false), REFRESH_MS);
+  fetchData();
+  refreshTimer = setInterval(() => fetchData(), REFRESH_MS);
 })();
 </script>
 </body>
