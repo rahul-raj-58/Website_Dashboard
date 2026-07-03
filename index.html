@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VIN Review Ops — Fleet Review Dashboard</title>
 
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/flatpickr.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/flatpickr.min.css"
+      onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css'">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
@@ -373,9 +374,7 @@
   <div id="debugBody">No sync yet.</div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/flatpickr.min.js"></script>
+
 
 <script>
 /* =========================================================
@@ -391,6 +390,58 @@ function initials(name){
   const parts = name.trim().split(/\s+/);
   return (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
 }
+
+/* =========================================================
+   RESILIENT LIBRARY LOADER
+   Tries multiple CDNs in order so a single blocked host
+   (firewall / ad-blocker / regional block) doesn't break the page.
+========================================================= */
+function loadScript(urls){
+  return new Promise((resolve, reject)=>{
+    let i = 0;
+    function tryNext(){
+      if(i >= urls.length){ reject(new Error('All CDN sources failed for: ' + urls[0])); return; }
+      const s = document.createElement('script');
+      s.src = urls[i];
+      s.onload = () => resolve(urls[i]);
+      s.onerror = () => { i++; tryNext(); };
+      document.head.appendChild(s);
+    }
+    tryNext();
+  });
+}
+async function bootLibraries(){
+  const status = { papa:false, chart:false, flatpickr:false };
+  try{
+    await loadScript([
+      'https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js',
+      'https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js',
+      'https://unpkg.com/papaparse@5.4.1/papaparse.min.js'
+    ]);
+    status.papa = true;
+  }catch(e){ console.error(e); }
+
+  try{
+    await loadScript([
+      'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js',
+      'https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js',
+      'https://unpkg.com/chart.js@4.4.4/dist/chart.umd.min.js'
+    ]);
+    status.chart = true;
+  }catch(e){ console.error(e); }
+
+  try{
+    await loadScript([
+      'https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/flatpickr.min.js',
+      'https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js',
+      'https://unpkg.com/flatpickr@4.6.13/dist/flatpickr.min.js'
+    ]);
+    status.flatpickr = true;
+  }catch(e){ console.error(e); }
+
+  return status;
+}
+let libStatus = { papa:false, chart:false, flatpickr:false };
 
 /* =========================================================
    STATE
@@ -471,21 +522,20 @@ async function fetchData(isManual){
   setSyncState('loading');
   const btn = document.getElementById('syncBtn');
   btn.classList.add('spinning');
+  let parsed = null;
+
+  // --- Phase 1: fetch + parse the sheet. Failures here are genuine sync failures. ---
   try{
     const res = await fetch(SHEET_CSV_URL + (SHEET_CSV_URL.includes('?') ? '&' : '?') + 'cachebust=' + Date.now());
     if(!res.ok) throw new Error('HTTP ' + res.status);
     const csvText = await res.text();
-    const parsed = Papa.parse(csvText, { header:true, skipEmptyLines:true });
+    parsed = Papa.parse(csvText, { header:true, skipEmptyLines:true });
     if(parsed.errors && parsed.errors.length && (!parsed.data || !parsed.data.length)){
       throw new Error('Could not parse sheet data');
     }
     rawRows = normalizeRows(parsed.data);
     lastSyncTime = new Date();
     setSyncState('ok');
-    populateFilterOptions();
-    renderAll();
-    triggerScanlines();
-    updateDiagnostics(parsed);
   }catch(err){
     console.error(err);
     setSyncState('error');
@@ -494,9 +544,25 @@ async function fetchData(isManual){
     body.innerHTML = `<div style="color:var(--red)">Fetch/parse failed: ${escapeHtml(err.message || String(err))}</div>
       <div style="margin-top:8px;">Check: the sheet is published to the web (File → Share → Publish to web), the URL's <code>gid</code> matches the correct tab, and the tab has a single header row.</div>`;
     document.getElementById('debugPanel').classList.add('show');
-  }finally{
     btn.classList.remove('spinning');
+    return;
   }
+
+  // --- Phase 2: render. Failures here (e.g. a chart library that didn't load) are display
+  // issues, not sync issues — the data itself is fine, so we never overwrite sync status here. ---
+  try{
+    populateFilterOptions();
+    renderAll();
+    triggerScanlines();
+    updateDiagnostics(parsed);
+  }catch(renderErr){
+    console.error(renderErr);
+    showToast('Data synced OK, but part of the dashboard failed to render: ' + renderErr.message);
+    const body = document.getElementById('debugBody');
+    body.innerHTML += `<div style="color:var(--amber); margin-top:10px;">Render issue: ${escapeHtml(renderErr.message)}</div>`;
+    document.getElementById('debugPanel').classList.add('show');
+  }
+  btn.classList.remove('spinning');
 }
 
 function normalizeRows(data){
@@ -617,7 +683,7 @@ function populateFilterOptions(){
   fillSelect('rooftopFilter', uniqueSorted(rawRows.map(r=>r.rooftop)));
   fillSelect('reviewFilter', uniqueSorted(rawRows.map(r=>r.reviewType)));
 
-  if(!fp && rawRows.length){
+  if(!fp && rawRows.length && typeof flatpickr !== 'undefined'){
     const dates = rawRows.map(r=>r.date).filter(Boolean).sort((a,b)=>a-b);
     fp = flatpickr("#dateRange", {
       mode: "range",
@@ -625,6 +691,10 @@ function populateFilterOptions(){
       defaultDate: dates.length ? [dates[0], dates[dates.length-1]] : [new Date(), new Date()],
       onChange: renderAll
     });
+  }else if(typeof flatpickr === 'undefined'){
+    const el = document.getElementById('dateRange');
+    el.placeholder = 'Date picker unavailable';
+    el.disabled = true;
   }
 }
 function fillSelect(id, values){
@@ -740,6 +810,10 @@ function renderWorkloadChart(rows){
   const labels = dates.map(d=> fmtDate(new Date(d)));
 
   const ctx = document.getElementById('workloadChart');
+  if(typeof Chart === 'undefined'){
+    renderEmptyCanvas(ctx, 'Chart library unavailable — try Sync now, or reload the page');
+    return;
+  }
   if(charts.workload) charts.workload.destroy();
   if(!dates.length){ renderEmptyCanvas(ctx, 'No dated rows in the current filters'); return; }
   document.getElementById('workloadChartEmpty').style.display = 'none';
@@ -802,6 +876,10 @@ function renderReviewChart(rows){
   const colors = labels.map((l,i)=>colorFor(l,i));
 
   const ctx = document.getElementById('reviewChart');
+  if(typeof Chart === 'undefined'){
+    renderEmptyCanvas(ctx, 'Chart library unavailable — try Sync now, or reload the page');
+    return;
+  }
   if(charts.review) charts.review.destroy();
   if(!labels.length){ renderEmptyCanvas(ctx, 'No data for the current filters'); return; }
   document.getElementById('reviewChartEmpty').style.display = 'none';
@@ -902,9 +980,31 @@ document.querySelectorAll('#perfTable thead th').forEach(th=>{
 /* =========================================================
    INIT
 ========================================================= */
-document.getElementById('syncBtn').addEventListener('click', ()=>fetchData(true));
-fetchData(false);
-setInterval(()=>fetchData(false), RESYNC_MS);
+(async function init(){
+  document.getElementById('syncLabel').textContent = 'Loading libraries…';
+  libStatus = await bootLibraries();
+
+  if(!libStatus.chart){
+    showToast('Chart library could not be loaded from any CDN — charts will show a fallback message, but KPIs, the performance list, and the task table will still work.');
+  }
+  if(!libStatus.flatpickr){
+    showToast('Date-range picker could not be loaded — the calendar filter is disabled, but all other filters still work.');
+  }
+
+  if(!libStatus.papa){
+    setSyncState('error');
+    document.getElementById('syncLabel').textContent = 'Cannot load CSV parser';
+    const body = document.getElementById('debugBody');
+    body.innerHTML = `<div style="color:var(--red)">Could not load PapaParse (the CSV parser) from cdnjs, jsDelivr, or unpkg.</div>
+      <div style="margin-top:8px;">This usually means your network blocks all three CDN domains. Ask your network admin to allow cdnjs.cloudflare.com, cdn.jsdelivr.net, and unpkg.com, then reload.</div>`;
+    document.getElementById('debugPanel').classList.add('show');
+    return; // can't parse the sheet at all without this
+  }
+
+  document.getElementById('syncBtn').addEventListener('click', ()=>fetchData(true));
+  fetchData(false);
+  setInterval(()=>fetchData(false), RESYNC_MS);
+})();
 </script>
 </body>
 </html>
