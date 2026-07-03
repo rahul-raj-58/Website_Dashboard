@@ -343,6 +343,20 @@
     <div class="chart-box tall"><canvas id="dailyChart"></canvas></div>
   </div>
 
+  <div class="panel">
+    <h2>Daily Performance by Review Type <span class="tag">VINs × factor, from the review-type factor sheet</span></h2>
+    <div id="factorNotice" style="display:none;background:rgba(255,90,95,0.1);border:1px solid rgba(255,90,95,0.35);color:#ffb3b3;padding:8px 12px;border-radius:7px;font-size:12px;margin-bottom:14px;"></div>
+    <div class="chart-box tall"><canvas id="weightedChart"></canvas></div>
+    <details class="mapping" style="margin-top:14px;">
+      <summary>⚙ Review type factors (from the second sheet tab) — click to view or fix</summary>
+      <div id="factorDiagnostics" style="display:flex;flex-direction:column;gap:5px;margin-top:12px;padding:10px 12px;background:var(--panel-raised);border:1px solid var(--border);border-radius:7px;"></div>
+      <div class="mapping-grid" style="margin-top:12px;">
+        <div class="field"><label>"Review type" comes from</label><select id="mapFactorType"></select></div>
+        <div class="field"><label>"Factor" comes from</label><select id="mapFactorValue"></select></div>
+      </div>
+    </details>
+  </div>
+
   <div class="charts-row">
     <div class="panel">
       <h2>Reviewer Leaderboard <span class="tag">total VINs handled</span></h2>
@@ -355,7 +369,7 @@
   </div>
 
   <div class="panel">
-    <h2>Reviewer Performance <span class="tag">VINs handled &amp; tasks (rows) per reviewer</span></h2>
+    <h2>Reviewer Performance <span class="tag">VINs handled, tasks (rows) &amp; weighted score per reviewer</span></h2>
     <div class="perf-table-scroll">
       <table id="perfTable">
         <thead>
@@ -366,10 +380,11 @@
             <th data-col="vins">Total VINs</th>
             <th data-col="impacted">Impacted VINs</th>
             <th data-col="avg">Avg VINs / Task</th>
+            <th data-col="weighted">Weighted Score</th>
             <th data-col="days">Active Days</th>
           </tr>
         </thead>
-        <tbody id="perfBody"><tr class="empty-row"><td colspan="7">Loading…</td></tr></tbody>
+        <tbody id="perfBody"><tr class="empty-row"><td colspan="8">Loading…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -447,6 +462,8 @@
   const SHEET_KEY = "2PACX-1vRl_3g25PgrDGOBIcwKh_U7IIowogVtUFmmqtUKnLUKR2S4zxjkly29RUD9_T8I_tvZ5Mam5Y9RqKFF";
   const GID = "421286318";
   const CSV_URL = `https://docs.google.com/spreadsheets/d/e/${SHEET_KEY}/pub?gid=${GID}&single=true&output=csv`;
+  const FACTOR_GID = "1842020658";
+  const FACTOR_CSV_URL = `https://docs.google.com/spreadsheets/d/e/${SHEET_KEY}/pub?gid=${FACTOR_GID}&single=true&output=csv`;
   const REFRESH_MS = 30 * 60 * 1000;
   const PAGE_SIZE = 15;
   const COLORS = ["#ff9e2c","#33c7b0","#5b9dff","#ff5a5f","#c792ea","#7bd88f","#f2c94c","#ff8fb1","#6fd3ff","#d0a24c"];
@@ -461,7 +478,11 @@
     perfSort: { col:"vins", dir:-1 },
     page: 1,
     charts: {},
-    range: { from:null, to:null } // Date objects or null
+    range: { from:null, to:null }, // Date objects or null
+    factorHeaders: [],
+    factorRows: [],
+    factorMap: { type:null, value:null },
+    factors: {} // reviewType -> numeric factor
   };
 
   // ---------- DOM SHORTCUTS ----------
@@ -546,6 +567,9 @@
       populateMappingSelectors();
       checkMappingHealth();
       populateFilterOptions();
+
+      await fetchFactors();
+
       applyFiltersAndRender();
 
       setSyncing(false, true);
@@ -556,6 +580,86 @@
       showError("Couldn't load the sheet — check your connection or the sheet's publish settings. (" + err.message + ")");
     }
     resetCountdown();
+  }
+
+  // ---------- REVIEW TYPE FACTOR LOOKUP (second published tab) ----------
+  async function fetchFactors(){
+    const notice = $("factorNotice");
+    try{
+      if(!papaReady) papaReady = await loadFirstWorking(LIB_SOURCES.papa);
+      if(!papaReady) throw new Error("CSV parser unavailable");
+      const res = await fetch(FACTOR_CSV_URL + "?cachebust=" + Date.now());
+      if(!res.ok) throw new Error("HTTP " + res.status);
+      const text = await res.text();
+      const parsed = Papa.parse(text, { header:true, skipEmptyLines:true });
+      state.factorHeaders = (parsed.meta.fields || []).map(h => h.trim());
+      state.factorRows = parsed.data.map(r => {
+        const clean = {};
+        state.factorHeaders.forEach(h => clean[h] = cleanCell(r[h] !== undefined ? String(r[h]) : ""));
+        return clean;
+      }).filter(r => Object.values(r).some(v => v !== ""));
+
+      detectFactorColumns();
+      populateFactorMappingSelectors();
+      buildFactorMap();
+      renderFactorDiagnostics();
+      notice.style.display = "none";
+    }catch(err){
+      console.error("Factor sheet error:", err);
+      state.factors = {};
+      notice.style.display = "block";
+      notice.textContent = `Couldn't load the review-type factor sheet (${err.message}). Weighted performance is using a default factor of 1 for every review type.`;
+    }
+  }
+
+  function detectFactorColumns(){
+    const h = state.factorHeaders;
+    state.factorMap.type = guessColumn(h, [["review","type"],["type"]]);
+    state.factorMap.value = guessColumn(h, [["factor"]], new Set([state.factorMap.type]))
+      || guessColumn(h, [["weight"]], new Set([state.factorMap.type]))
+      || guessColumn(h, [["multiplier"]], new Set([state.factorMap.type]))
+      || guessColumn(h, [["score"]], new Set([state.factorMap.type]));
+  }
+
+  function populateFactorMappingSelectors(){
+    const fill = (sel, current) => {
+      sel.innerHTML = `<option value="">— none —</option>` + state.factorHeaders.map(h => `<option value="${h}" ${h===current?"selected":""}>${h}</option>`).join("");
+    };
+    fill($("mapFactorType"), state.factorMap.type);
+    fill($("mapFactorValue"), state.factorMap.value);
+  }
+
+  function buildFactorMap(){
+    state.factors = {};
+    const typeCol = state.factorMap.type, valCol = state.factorMap.value;
+    if(!typeCol || !valCol) return;
+    state.factorRows.forEach(r => {
+      const t = r[typeCol];
+      if(!t) return;
+      state.factors[t] = parseNum(r[valCol]);
+    });
+  }
+
+  function getFactor(reviewType){
+    if(reviewType && state.factors[reviewType] !== undefined) return state.factors[reviewType];
+    return 1; // default multiplier when a type has no listed factor
+  }
+
+  function renderFactorDiagnostics(){
+    const box = $("factorDiagnostics");
+    if(!box) return;
+    const typeCol = state.factorMap.type, valCol = state.factorMap.value;
+    if(!typeCol || !valCol){
+      box.innerHTML = `<div style="font-size:11px;color:var(--coral);">Couldn't find a "Review Type" and "Factor" column on the factor sheet — check the dropdowns below.</div>`;
+      return;
+    }
+    const rows = state.factorRows.filter(r => r[typeCol]);
+    box.innerHTML = rows.length
+      ? rows.map(r => `<div style="display:flex;gap:8px;font-size:11px;font-family:'JetBrains Mono',monospace;">
+          <span style="color:var(--text);min-width:220px;">${r[typeCol]}</span>
+          <span style="color:var(--teal);">factor ${parseNum(r[valCol])}</span>
+        </div>`).join("")
+      : `<div style="font-size:11px;color:var(--coral);">Columns detected but no rows found.</div>`;
   }
 
   function detectColumns(){
@@ -869,6 +973,7 @@
 
     renderKPIs();
     renderDailyChart();
+    renderWeightedChart();
     renderLeaderboard();
     renderTypeChart();
     renderPerformanceTable();
@@ -894,12 +999,14 @@
     const persons = new Set(rows.map(r => r[state.map.person]).filter(Boolean));
     const totalVins = state.map.vins ? rows.reduce((s,r)=> s + parseNum(r[state.map.vins]), 0) : null;
     const totalImpacted = state.map.impactedVins ? rows.reduce((s,r)=> s + parseNum(r[state.map.impactedVins]), 0) : null;
+    const totalWeighted = state.map.vins ? rows.reduce((s,r)=> s + parseNum(r[state.map.vins]) * getFactor(state.map.type ? r[state.map.type] : null), 0) : null;
 
     const cards = [
       { num: totalTasks, lbl: "Total Tasks (Rows)", pct: 1, color:"var(--amber)" },
       { num: totalVins !== null ? totalVins.toLocaleString() : "—", lbl: "Total VINs Reviewed", pct: totalVins !== null ? Math.min(totalVins/2000,1) : 0, color:"var(--teal)" },
       { num: totalImpacted !== null ? totalImpacted.toLocaleString() : "—", lbl: "Impacted VINs", pct: totalImpacted !== null ? Math.min(totalImpacted/500,1) : 0, color:"var(--coral)" },
       { num: state.map.person ? persons.size : "—", lbl: "Active Reviewers", pct: state.map.person ? Math.min(persons.size/10,1) : 0, color:"var(--amber)" },
+      { num: totalWeighted !== null ? totalWeighted.toLocaleString(undefined,{maximumFractionDigits:1}) : "—", lbl: "Weighted Score (VINs × Factor)", pct: totalWeighted !== null ? Math.min(totalWeighted/2000,1) : 0, color:"var(--teal)" },
     ];
 
     $("kpiRow").innerHTML = cards.map(c => `
@@ -983,6 +1090,51 @@
     });
   }
 
+  function renderWeightedChart(){
+    if(!chartReady){ chartsUnavailableNotice("weightedChart"); return; }
+    const dateCol = state.map.date, vinsCol = state.map.vins, typeCol = state.map.type;
+    if(!dateCol || !vinsCol || !typeCol){ chartsUnavailableNotice("weightedChart", "Set the Date, VINs and Review type columns in Column Mapping above to see this chart."); destroyChart("weighted"); return; }
+    hideChartNotice("weightedChart");
+    destroyChart("weighted");
+
+    const byDate = {}; // date -> { type -> weightedSum }
+    const typesSeen = new Set();
+    state.filtered.forEach(r => {
+      const d = parseDate(r[dateCol]);
+      if(!d) return;
+      const key = isoDate(d);
+      const t = r[typeCol] || "Unspecified";
+      typesSeen.add(t);
+      byDate[key] = byDate[key] || {};
+      byDate[key][t] = (byDate[key][t] || 0) + parseNum(r[vinsCol]) * getFactor(t);
+    });
+    const dateKeys = Object.keys(byDate).sort();
+    const types = [...typesSeen].slice(0, 12);
+
+    const datasets = types.map((t,i) => ({
+      label: t,
+      data: dateKeys.map(dk => Math.round((byDate[dk][t] || 0) * 100) / 100),
+      backgroundColor: COLORS[i % COLORS.length],
+      stack: "s",
+      borderRadius: 3,
+      maxBarThickness: 32
+    }));
+
+    const ctx = document.getElementById("weightedChart").getContext("2d");
+    state.charts.weighted = new Chart(ctx, {
+      type: "bar",
+      data: { labels: dateKeys.map(dk => new Date(dk).toLocaleDateString(undefined,{month:"short",day:"numeric"})), datasets },
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ position:"bottom", labels:{ color:"#8b93a3", boxWidth:10, font:{size:10} } } },
+        scales:{
+          x:{ stacked:true, ticks:{ color:"#8b93a3", font:{size:10} }, grid:{ color:"#1c222b" } },
+          y:{ stacked:true, ticks:{ color:"#8b93a3" }, grid:{ color:"#1c222b" }, beginAtZero:true }
+        }
+      }
+    });
+  }
+
   function renderLeaderboard(){
     if(!chartReady){ chartsUnavailableNotice("leaderChart"); return; }
     const personCol = state.map.person, vinsCol = state.map.vins;
@@ -1039,19 +1191,20 @@
 
   // ---------- PERFORMANCE TABLE ----------
   function buildPerformanceRows(){
-    const personCol = state.map.person, vinsCol = state.map.vins, impactedCol = state.map.impactedVins, dateCol = state.map.date;
+    const personCol = state.map.person, vinsCol = state.map.vins, impactedCol = state.map.impactedVins, dateCol = state.map.date, typeCol = state.map.type;
     if(!personCol) return [];
     const agg = {};
     state.filtered.forEach(r => {
       const p = r[personCol]; if(!p) return;
-      if(!agg[p]) agg[p] = { person:p, tasks:0, vins:0, impacted:0, days:new Set() };
+      if(!agg[p]) agg[p] = { person:p, tasks:0, vins:0, impacted:0, weighted:0, days:new Set() };
       agg[p].tasks++;
       if(vinsCol) agg[p].vins += parseNum(r[vinsCol]);
       if(impactedCol) agg[p].impacted += parseNum(r[impactedCol]);
+      if(vinsCol) agg[p].weighted += parseNum(r[vinsCol]) * getFactor(typeCol ? r[typeCol] : null);
       if(dateCol && r[dateCol]) agg[p].days.add(r[dateCol]);
     });
     return Object.values(agg).map(a => ({
-      person:a.person, tasks:a.tasks, vins:a.vins, impacted:a.impacted,
+      person:a.person, tasks:a.tasks, vins:a.vins, impacted:a.impacted, weighted:a.weighted,
       avg: a.tasks ? (a.vins/a.tasks) : 0, days: a.days.size
     }));
   }
@@ -1060,7 +1213,7 @@
     const rows = buildPerformanceRows();
     const body = $("perfBody");
     if(!rows.length){
-      body.innerHTML = `<tr class="empty-row"><td colspan="7">No reviewer data for the current filters.</td></tr>`;
+      body.innerHTML = `<tr class="empty-row"><td colspan="8">No reviewer data for the current filters.</td></tr>`;
       return;
     }
     const { col, dir } = state.perfSort;
@@ -1074,6 +1227,7 @@
         <td>${r.vins.toLocaleString()}<span class="share-bar" style="width:${Math.max(6,(r.vins/maxVins)*60)}px;"></span></td>
         <td>${r.impacted.toLocaleString()}</td>
         <td>${r.avg.toFixed(1)}</td>
+        <td>${r.weighted.toLocaleString(undefined,{maximumFractionDigits:1})}</td>
         <td>${r.days}</td>
       </tr>
     `).join("");
@@ -1216,6 +1370,8 @@
   $("mapRooftop").addEventListener("change", e => { state.map.rooftopName = e.target.value || null; checkMappingHealth(); populateFilterOptions(); applyFiltersAndRender(); });
   $("mapVins").addEventListener("change", e => { state.map.vins = e.target.value || null; checkMappingHealth(); applyFiltersAndRender(); });
   $("mapImpacted").addEventListener("change", e => { state.map.impactedVins = e.target.value || null; applyFiltersAndRender(); });
+  $("mapFactorType").addEventListener("change", e => { state.factorMap.type = e.target.value || null; buildFactorMap(); renderFactorDiagnostics(); applyFiltersAndRender(); });
+  $("mapFactorValue").addEventListener("change", e => { state.factorMap.value = e.target.value || null; buildFactorMap(); renderFactorDiagnostics(); applyFiltersAndRender(); });
 
   document.addEventListener("click", e => {
     const th = e.target.closest("#dataTable th[data-col]");
