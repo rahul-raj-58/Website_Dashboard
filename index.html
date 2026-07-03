@@ -413,6 +413,22 @@
       </div>
     </div>
 
+    <div class="card" style="grid-column:1 / -1; --card-accent:#e0c25a;">
+      <div class="card-head">
+        <div>
+          <h2>QC frequency leaderboard — by enterprise</h2>
+          <div class="hint">Ranked by distinct days with QC activity (same-day repeats count once) — click a row, line, or legend to filter</div>
+        </div>
+      </div>
+      <div class="lb-summary" id="qcLbSummary"></div>
+      <div id="qcLbList"></div>
+      <div class="hint" id="qcLbTrendHint" style="margin:20px 0 10px 0;"></div>
+      <div class="chart-box" style="height:260px;">
+        <canvas id="qcLbTrendChart"></canvas>
+        <div class="empty-state" id="qcLbTrendChartEmpty" style="display:none; position:absolute; inset:0; align-items:center; justify-content:center;"></div>
+      </div>
+    </div>
+
     <div class="card" style="grid-column:1 / -1; --card-accent:#c98cff;">
       <div class="card-head">
         <div>
@@ -555,7 +571,7 @@ let libStatus = { papa:false, chart:false, flatpickr:false };
 ========================================================= */
 let rawRows = [];        // all parsed rows
 let lastSyncTime = null;
-let charts = { workload:null, reviewEffort:null, qcFrequency:null };
+let charts = { workload:null, reviewEffort:null, qcFrequency:null, qcLbTrend:null };
 let factorMap = {};       // reviewType (lowercased) -> factor seconds
 let factorRawRows = [];   // raw parsed rows from the factor sheet, for diagnostics
 let factorSheetError = null;
@@ -935,6 +951,12 @@ function filterByPerson(person, isoDateStr){
     filterByPerson(person, dateStr || null);
   });
 });
+document.getElementById('qcLbList').addEventListener('click', (e)=>{
+  const row = e.target.closest('.clickable-row');
+  if(!row) return;
+  const enterprise = row.dataset.enterprise;
+  if(enterprise) applyQcEnterpriseFilter(enterprise);
+});
 
 /* =========================================================
    RENDER: MAIN ENTRY
@@ -948,6 +970,7 @@ function renderAll(){
   renderPerformance(rows);
   renderReviewEffortChart(rows);
   renderQcFrequencyChart();
+  renderQcFrequencyLeaderboard();
   renderEffortTable(rows);
   renderLeaderboard(rows);
   renderTable(rows);
@@ -1182,6 +1205,117 @@ function applyQcEnterpriseFilter(enterpriseName){
   const qcOpt = [...document.getElementById('reviewFilter').options].find(o=>normalizeKey(o.value) === 'qc');
   if(qcOpt) document.getElementById('reviewFilter').value = qcOpt.value;
   renderAll();
+}
+
+/* ---------- QC frequency leaderboard: rank enterprises by DISTINCT days with QC activity
+   (multiple QC rows on the same day for the same enterprise count once), plus a cumulative trend ---------- */
+function renderQcFrequencyLeaderboard(){
+  const listEl = document.getElementById('qcLbList');
+  const summaryEl = document.getElementById('qcLbSummary');
+  const chartCtx = document.getElementById('qcLbTrendChart');
+  const hintEl = document.getElementById('qcLbTrendHint');
+
+  // Scoped to review type "QC" specifically (like the sibling frequency chart), but otherwise
+  // respects every top filter as-is, including Enterprise Name.
+  const base = getFilteredRows({ ignoreReview:true }).filter(r => r.date && normalizeKey(r.reviewType) === 'qc');
+
+  if(!base.length){
+    listEl.innerHTML = '<div class="empty-state">No rows with review type "QC" in the current filters</div>';
+    summaryEl.textContent = '';
+    renderEmptyCanvas(chartCtx, 'No QC activity in the current filters');
+    if(hintEl) hintEl.textContent = '';
+    return;
+  }
+
+  // Distinct QC days per enterprise (dedup: one entry per calendar day, however many QC rows that day)
+  const byEnterprise = {};
+  base.forEach(r=>{
+    const day = isoDate(r.date);
+    byEnterprise[r.enterprise] = byEnterprise[r.enterprise] || { days:new Set(), tasks:0 };
+    byEnterprise[r.enterprise].days.add(day);
+    byEnterprise[r.enterprise].tasks += 1;
+  });
+
+  const ranked = Object.entries(byEnterprise)
+    .map(([enterprise, d]) => ({ enterprise, frequency: d.days.size, tasks: d.tasks }))
+    .sort((a,b)=> b.frequency - a.frequency || b.tasks - a.tasks);
+
+  const allDates = [...new Set(base.map(r=>isoDate(r.date)))].sort();
+  summaryEl.textContent = `${fmtDate(new Date(allDates[0]))} – ${fmtDate(new Date(allDates[allDates.length-1]))} · ${base.length} QC tasks · ${ranked.length} enterprise(s) active`;
+
+  const maxFreq = ranked[0].frequency;
+  const rankColors = ['#f0c419', '#c9d1e0', '#d98c4a'];
+  listEl.innerHTML = ranked.slice(0,10).map((d,i)=>`
+    <div class="lb-row clickable-row" data-enterprise="${escapeHtml(d.enterprise)}" title="Filter by ${escapeHtml(d.enterprise)}">
+      <div class="lb-rank" style="background:${rankColors[i] || 'var(--surface-2)'}; color:${i<3 ? '#0a0d13' : 'var(--text-dim)'}; border:${i<3 ? 'none' : '1px solid var(--border)'}">${i+1}</div>
+      <div class="lb-person">
+        <div class="lb-name" title="${escapeHtml(d.enterprise)}">${d.enterprise}</div>
+        <div class="lb-bar-track"><div class="lb-bar-fill" style="width:${Math.max(4, d.frequency/maxFreq*100)}%; background:${colorFor(d.enterprise,i)}"></div></div>
+      </div>
+      <div class="lb-stats">
+        <div class="lb-stat-main">${d.frequency} ${d.frequency === 1 ? 'day' : 'days'}</div>
+        <div class="lb-stat-sub">${d.tasks} QC ${d.tasks === 1 ? 'task' : 'tasks'}</div>
+      </div>
+    </div>
+  `).join('');
+
+  // Cumulative trend: for the top 6 enterprises, count +1 each calendar day they had any QC activity
+  if(typeof Chart === 'undefined'){
+    renderEmptyCanvas(chartCtx, 'Chart library unavailable — try Sync now, or reload the page');
+    return;
+  }
+  const topEnterprises = ranked.slice(0,6).map(e=>e.enterprise);
+  const activeDates = {};
+  topEnterprises.forEach(ent=>{
+    activeDates[ent] = new Set(base.filter(r=>r.enterprise === ent).map(r=>isoDate(r.date)));
+  });
+  const cumulative = {};
+  topEnterprises.forEach(ent=>{
+    let count = 0;
+    cumulative[ent] = allDates.map(d=>{ if(activeDates[ent].has(d)) count++; return count; });
+  });
+
+  if(hintEl) hintEl.textContent = 'Cumulative distinct QC days over time, top enterprises — click a line to filter';
+  document.getElementById('qcLbTrendChartEmpty').style.display = 'none';
+  chartCtx.style.cursor = 'pointer';
+  if(charts.qcLbTrend) charts.qcLbTrend.destroy();
+
+  charts.qcLbTrend = new Chart(chartCtx, {
+    type:'line',
+    data:{
+      labels: allDates.map(d=>fmtDate(new Date(d))),
+      datasets: topEnterprises.map((ent,i)=>({
+        label: ent, data: cumulative[ent],
+        borderColor: colorFor(ent,i), backgroundColor:'transparent',
+        borderWidth:2, pointRadius:1.5, tension:.25,
+        pointBackgroundColor: colorFor(ent,i)
+      }))
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      onClick:(evt, elements, chart)=>{
+        const points = chart.getElementsAtEventForMode(evt, 'nearest', { intersect:true }, false);
+        if(!points.length) return;
+        applyQcEnterpriseFilter(chart.data.datasets[points[0].datasetIndex].label);
+      },
+      plugins:{
+        legend:{
+          position:'bottom', labels:{ color:'#99a1b8', font:{ size:11, family:'Inter' }, boxWidth:9, boxHeight:9, padding:12 },
+          onClick:(evt, legendItem)=> applyQcEnterpriseFilter(legendItem.text)
+        },
+        tooltip:{
+          backgroundColor:'#171c27', borderColor:'#232a39', borderWidth:1,
+          titleColor:'#e7eaf2', bodyColor:'#99a1b8', padding:10,
+          titleFont:{ family:'JetBrains Mono', size:11 }, bodyFont:{ family:'Inter', size:12 }
+        }
+      },
+      scales:{
+        x:{ grid:{ color:'rgba(255,255,255,0.03)' }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' }, maxRotation:0, autoSkip:true } },
+        y:{ grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' } }, beginAtZero:true, title:{ display:true, text:'Cumulative QC days', color:'#5c6478', font:{ size:10, family:'JetBrains Mono' } } }
+      }
+    }
+  });
 }
 
 function baseChartOptions(){
