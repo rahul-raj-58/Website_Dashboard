@@ -596,10 +596,17 @@ function isoDate(d){
 }
 function countVins(field){
   if(field === null || field === undefined) return 0;
-  const s = String(field).trim();
-  if(s === '') return 0;
-  if(/^\d+(\.\d+)?$/.test(s)) return Math.round(parseFloat(s));
-  const tokens = s.split(/[,;\n]+/).map(t=>t.trim()).filter(Boolean);
+  const raw = String(field).trim();
+  if(raw === '') return 0;
+  // If the cell is a single number — possibly written with thousands separators or
+  // stray spaces, e.g. "1,234" or "1 234" — treat it as that number, not as a list.
+  // (Previously a value like "1,234" was wrongly split into two tokens ["1","234"],
+  // undercounting the true VIN total for that row.)
+  const cleaned = raw.replace(/[,\s]/g, '');
+  if(/^\d+(\.\d+)?$/.test(cleaned)) return Math.round(parseFloat(cleaned));
+  // Otherwise treat the cell as a list of individual VINs (real VIN codes contain
+  // letters, so they'll never match the numeric check above).
+  const tokens = raw.split(/[,;\n]+/).map(t=>t.trim()).filter(Boolean);
   return tokens.length;
 }
 function normalizeKey(s){ return (s||'').trim().toLowerCase(); }
@@ -785,6 +792,10 @@ function updateDiagnostics(parsed){
     <pre>${escapeHtml(headers.join(', ') || '(none — check the sheet is published with a header row)')}</pre>
     <div>Rows with an unrecognized date: <b>${invalidDateRows.length}</b> (still counted in totals, excluded from the timeline chart)</div>
     ${invalidDateRows.length ? `<div>Sample raw date values:</div><pre>${escapeHtml(invalidDateRows.slice(0,5).map(r=>JSON.stringify(r.dateRaw)).join(', '))}</pre>` : ''}
+    <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border-soft);">VINs column check (raw sheet value → parsed count), first 5 rows:</div>
+    <pre>${escapeHtml(rawRows.slice(0,5).map(r=>`${JSON.stringify(r.vinsRaw)} → ${r.vins}`).join('\n') || '(no rows)')}</pre>
+    <div>Sum of parsed VINs across <b>all ${rawRows.length}</b> loaded rows (no filters applied): <b>${rawRows.reduce((s,r)=>s+r.vins,0).toLocaleString()}</b></div>
+    <div>Sum of parsed VINs for the <b>currently filtered</b> view: <b>${getFilteredRows().reduce((s,r)=>s+r.vins,0).toLocaleString()}</b> (${getFilteredRows().length} rows)</div>
     <div>First raw row from the sheet:</div>
     <pre>${escapeHtml(JSON.stringify(parsed.data[0] || {}, null, 2))}</pre>
     <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border-soft);">Factor reference sheet:
