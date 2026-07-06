@@ -460,8 +460,8 @@
     <div class="card" style="grid-column:1 / -1; --card-accent:#e0c25a;">
       <div class="card-head">
         <div>
-          <h2>QC frequency leaderboard — by enterprise</h2>
-          <div class="hint">Ranked by distinct days with QC activity (same-day repeats count once) — click a row to filter</div>
+          <h2>Enterprise activity frequency leaderboard</h2>
+          <div class="hint">Ranked by distinct active days per enterprise (same-day repeats count once), from the Enterprise Name column — click a row to filter</div>
         </div>
       </div>
       <div class="lb-summary" id="qcLbSummary"></div>
@@ -1229,7 +1229,7 @@ document.getElementById('qcLbList').addEventListener('click', (e)=>{
   const row = e.target.closest('.clickable-row');
   if(!row) return;
   const enterprise = row.dataset.enterprise;
-  if(enterprise) applyQcEnterpriseFilter(enterprise);
+  if(enterprise) applyEnterpriseFilter(enterprise);
 });
 
 /* =========================================================
@@ -1520,24 +1520,31 @@ function applyQcEnterpriseFilter(enterpriseName){
   if(qcOpt) document.getElementById('reviewFilter').value = qcOpt.value;
   renderAll();
 }
+function applyEnterpriseFilter(enterpriseName){
+  const sel = document.getElementById('enterpriseFilter');
+  const opt = [...sel.options].find(o=>o.value === enterpriseName);
+  if(!opt) return;
+  sel.value = enterpriseName;
+  renderAll();
+}
 
-/* ---------- QC frequency leaderboard: rank enterprises by DISTINCT days with QC activity
-   (multiple QC rows on the same day for the same enterprise count once), plus a cumulative trend ---------- */
+/* ---------- Enterprise activity frequency leaderboard: rank enterprises by DISTINCT active days
+   (multiple rows on the same day for the same enterprise count once) ---------- */
 function renderQcFrequencyLeaderboard(){
   const listEl = document.getElementById('qcLbList');
   const summaryEl = document.getElementById('qcLbSummary');
 
-  // Scoped to review type "QC" specifically (like the sibling frequency chart), but otherwise
-  // respects every top filter as-is, including Enterprise Name.
-  const base = getFilteredRows({ ignoreReview:true }).filter(r => r.date && normalizeKey(r.reviewType) === 'qc');
+  // Counts ANY row for that enterprise on a given date — straight from the Enterprise Name
+  // column, no review-type restriction. Respects every top filter as normal.
+  const base = getFilteredRows().filter(r => r.date);
 
   if(!base.length){
-    listEl.innerHTML = '<div class="empty-state">No rows with review type "QC" in the current filters</div>';
+    listEl.innerHTML = '<div class="empty-state">No dated rows in the current filters</div>';
     summaryEl.textContent = '';
     return;
   }
 
-  // Distinct QC days per enterprise (dedup: one entry per calendar day, however many QC rows that day)
+  // Distinct active days per enterprise (dedup: one entry per calendar day, however many rows that day)
   const byEnterprise = {};
   base.forEach(r=>{
     const day = isoDate(r.date);
@@ -1551,7 +1558,7 @@ function renderQcFrequencyLeaderboard(){
     .sort((a,b)=> b.frequency - a.frequency || b.tasks - a.tasks);
 
   const allDates = [...new Set(base.map(r=>isoDate(r.date)))].sort();
-  summaryEl.textContent = `${fmtDate(new Date(allDates[0]))} – ${fmtDate(new Date(allDates[allDates.length-1]))} · ${base.length} QC tasks · ${ranked.length} enterprise(s) active`;
+  summaryEl.textContent = `${fmtDate(new Date(allDates[0]))} – ${fmtDate(new Date(allDates[allDates.length-1]))} · ${base.length} tasks · ${ranked.length} enterprise(s) active`;
 
   const maxFreq = ranked[0].frequency;
   const rankColors = ['#f0c419', '#c9d1e0', '#d98c4a'];
@@ -1564,7 +1571,7 @@ function renderQcFrequencyLeaderboard(){
       </div>
       <div class="lb-stats">
         <div class="lb-stat-main">${d.frequency} ${d.frequency === 1 ? 'day' : 'days'}</div>
-        <div class="lb-stat-sub">${d.tasks} QC ${d.tasks === 1 ? 'task' : 'tasks'}</div>
+        <div class="lb-stat-sub">${d.tasks} ${d.tasks === 1 ? 'task' : 'tasks'}</div>
       </div>
     </div>
   `).join('');
