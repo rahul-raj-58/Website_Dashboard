@@ -172,6 +172,14 @@
   .legend-toggle{ cursor:pointer; user-select:none; transition:opacity .15s ease, color .15s ease; padding:3px 6px; border-radius:6px; }
   .legend-toggle:hover{ color:var(--text); background:var(--surface-hover); }
   .legend-toggle.legend-off{ opacity:.35; text-decoration:line-through; }
+
+  .preset-group{ display:flex; gap:4px; background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:3px; }
+  .preset-btn{
+    font-family:var(--mono); font-size:11px; color:var(--text-dim); background:none; border:none;
+    padding:5px 10px; border-radius:6px; cursor:pointer; transition:.12s ease;
+  }
+  .preset-btn:hover{ color:var(--text); background:var(--surface-hover); }
+  .preset-btn.active{ background:var(--teal); color:#06150f; font-weight:600; }
   .legend-dot{ width:8px; height:8px; border-radius:2px; }
 
   table{ width:100%; border-collapse:collapse; font-size:12.5px; }
@@ -205,7 +213,7 @@
   .perf-list{ display:flex; flex-direction:column; margin-top:6px; }
   .perf-row{
     display:grid; grid-template-columns:110px 1fr auto; align-items:center; gap:16px;
-    padding:11px 4px; border-bottom:1px solid var(--border-soft);
+    padding:12px 4px; border-bottom:1px solid var(--border-soft);
   }
   .perf-row:last-child{ border-bottom:none; padding-bottom:2px; }
   .perf-row:first-child{ padding-top:2px; }
@@ -354,14 +362,21 @@
           <h2>Daily workload — VINs processed</h2>
           <div class="hint" id="workloadHint">Bar = VINs/day · Lines = Impacted VINs, Tasks, Effort (hrs)</div>
         </div>
-        <div style="display:flex; gap:14px;">
+        <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+          <div class="preset-group">
+            <button class="preset-btn" data-preset="7">7D</button>
+            <button class="preset-btn" data-preset="30">30D</button>
+            <button class="preset-btn" data-preset="90">3M</button>
+          </div>
+          <div style="display:flex; gap:14px;">
           <span class="legend-chip legend-toggle" data-idx="0" title="Click to isolate this metric"><span class="legend-dot" style="background:var(--teal)"></span>VINs / day</span>
           <span class="legend-chip legend-toggle" data-idx="1" title="Click to isolate this metric"><span class="legend-dot" style="background:#f0a740; border-radius:50%;"></span>Impacted VINs</span>
           <span class="legend-chip legend-toggle" data-idx="2" title="Click to isolate this metric"><span class="legend-dot" style="background:var(--violet); border-radius:50%;"></span>Tasks</span>
           <span class="legend-chip legend-toggle" data-idx="3" title="Click to isolate this metric"><span class="legend-dot" style="background:#ef6a6a; border-radius:50%;"></span>Effort (hrs)</span>
+          </div>
         </div>
       </div>
-      <div class="chart-box">
+      <div class="chart-box" style="height:440px;">
         <canvas id="workloadChart"></canvas>
         <div class="empty-state" id="workloadChartEmpty" style="display:none; position:absolute; inset:0; align-items:center; justify-content:center;"></div>
       </div>
@@ -386,6 +401,7 @@
           <div class="hint">Total VINs handled, filtered range</div>
         </div>
       </div>
+      <div class="lb-summary" id="perfSummary"></div>
       <div class="perf-list" id="perfList"></div>
     </div>
 
@@ -518,19 +534,31 @@ const lineValueLabelPlugin = {
   id: 'lineValueLabels',
   afterDatasetsDraw(chart){
     const { ctx } = chart;
+    // stagger each dataset's label a bit further from its point so crossing lines don't
+    // print numbers directly on top of one another
+    const offsetByIndex = [ -8, -10, -22, -34 ];
     chart.data.datasets.forEach((dataset, i)=>{
-      if(dataset.type !== 'line') return;
       const meta = chart.getDatasetMeta(i);
       if(meta.hidden) return;
-      meta.data.forEach((point, idx)=>{
+      const isBar = dataset.type === 'bar';
+      const color = isBar ? '#35d0a0' : (dataset.borderColor || '#e7eaf2');
+      const offset = isBar ? -6 : (offsetByIndex[i] ?? -8);
+      meta.data.forEach((el, idx)=>{
         const value = dataset.data[idx];
         if(value === null || value === undefined) return;
+        const text = typeof value === 'number' ? value.toLocaleString() : String(value);
+        const x = el.x;
+        const y = (isBar ? el.y : el.y) + offset;
         ctx.save();
         ctx.font = '600 10px "JetBrains Mono", monospace';
-        ctx.fillStyle = dataset.borderColor || '#e7eaf2';
+        const textWidth = ctx.measureText(text).width;
+        // translucent background pill so the number stays legible over bars/other lines
+        ctx.fillStyle = 'rgba(9,12,18,0.72)';
+        ctx.fillRect(x - textWidth/2 - 3, y - 11, textWidth + 6, 13);
+        ctx.fillStyle = color;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
-        ctx.fillText(typeof value === 'number' ? value.toLocaleString() : value, point.x, point.y - 8);
+        ctx.fillText(text, x, y);
         ctx.restore();
       });
     });
@@ -993,6 +1021,7 @@ function renderAll(){
   const rows = getFilteredRows();
   document.getElementById('filterCount').textContent = rows.length + ' / ' + rawRows.length + ' rows';
   document.getElementById('rowCountNote').textContent = rawRows.length + ' rows loaded — ' + relativeTime(lastSyncTime);
+  document.querySelectorAll('.preset-btn').forEach(b=>b.classList.remove('active'));
   renderKPIs(rows);
   renderWorkloadChart(rows);
   renderPerformance(rows);
@@ -1068,6 +1097,10 @@ function renderWorkloadChart(rows){
   const tasksArr = dates.map(d=>byDate[d].tasks);
   const effortHrsArr = dates.map(d=>+(byDate[d].effortSec/3600).toFixed(2));
   const labels = dates.map(d=> fmtDate(new Date(d)));
+  // extra headroom on every axis so the value labels drawn above points/bars never get clipped
+  const vinsMax = Math.max(1, ...vinsArr, ...impactedArr) * 1.25;
+  const tasksMax = Math.max(1, ...tasksArr) * 1.35;
+  const effortMax = Math.max(1, ...effortHrsArr) * 1.6;
 
   const ctx = document.getElementById('workloadChart');
   if(typeof Chart === 'undefined'){
@@ -1123,9 +1156,9 @@ function renderWorkloadChart(rows){
       },
       scales:{
         x:{ grid:{ color:'rgba(255,255,255,0.03)' }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' }, maxRotation:0, autoSkip:true } },
-        y:{ position:'left', grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' } }, beginAtZero:true, title:{ display:true, text:'VINs', color:'#5c6478', font:{ size:10, family:'JetBrains Mono' } } },
-        y1:{ position:'right', grid:{ display:false }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' } }, beginAtZero:true, title:{ display:true, text:'Tasks', color:'#5c6478', font:{ size:10, family:'JetBrains Mono' } } },
-        y2:{ position:'right', display:false, beginAtZero:true } // dedicated scale for Effort (hrs) so its magnitude never squashes Tasks
+        y:{ position:'left', grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' } }, beginAtZero:true, suggestedMax:vinsMax, title:{ display:true, text:'VINs', color:'#5c6478', font:{ size:10, family:'JetBrains Mono' } } },
+        y1:{ position:'right', grid:{ display:false }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' } }, beginAtZero:true, suggestedMax:tasksMax, title:{ display:true, text:'Tasks', color:'#5c6478', font:{ size:10, family:'JetBrains Mono' } } },
+        y2:{ position:'right', display:false, beginAtZero:true, suggestedMax:effortMax } // dedicated scale for Effort (hrs) so its magnitude never squashes Tasks
       }
     },
     plugins:[lineValueLabelPlugin]
@@ -1155,6 +1188,21 @@ function isolateWorkloadDataset(idx){
 }
 document.querySelectorAll('.legend-toggle').forEach(chip=>{
   chip.addEventListener('click', ()=> isolateWorkloadDataset(parseInt(chip.dataset.idx, 10)));
+});
+
+/* ---------- Quick date-range presets (7D / 30D / 3M), anchored to the most recent data date ---------- */
+function applyDateRangePreset(days){
+  if(!fp || !rawRows.length) return;
+  const validDates = rawRows.map(r=>r.date).filter(Boolean);
+  if(!validDates.length) return;
+  const maxDate = new Date(Math.max(...validDates.map(d=>d.getTime())));
+  const startDate = new Date(maxDate);
+  startDate.setDate(startDate.getDate() - (days - 1));
+  fp.setDate([startDate, maxDate], true); // triggers renderAll via flatpickr onChange
+  document.querySelectorAll('.preset-btn').forEach(b=> b.classList.toggle('active', b.dataset.preset === String(days)));
+}
+document.querySelectorAll('.preset-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=> applyDateRangePreset(parseInt(btn.dataset.preset, 10)));
 });
 
 /* ---------- QC frequency by enterprise, daily trend ---------- */
@@ -1489,8 +1537,17 @@ function renderPerformance(rows){
   const list = Object.entries(byPerson).sort((a,b)=>b[1].vins - a[1].vins);
   const max = list.length ? list[0][1].vins : 1;
 
+  const summaryEl = document.getElementById('perfSummary');
   const el = document.getElementById('perfList');
-  if(!list.length){ el.innerHTML = '<div class="empty-state">No activity in this range</div>'; return; }
+  if(!list.length){
+    el.innerHTML = '<div class="empty-state">No activity in this range</div>';
+    if(summaryEl) summaryEl.textContent = '';
+    return;
+  }
+  if(summaryEl){
+    const totalVins = rows.reduce((s,r)=>s+r.vins,0);
+    summaryEl.textContent = `${rows.length} tasks · ${totalVins.toLocaleString()} VINs · ${list.length} ${list.length === 1 ? 'person' : 'people'} active`;
+  }
   el.innerHTML = list.slice(0,8).map(([name, d], i)=>`
     <div class="perf-row clickable-row" data-person="${escapeHtml(name)}" title="Filter by ${escapeHtml(name)}">
       <div class="perf-person">
