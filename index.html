@@ -1201,7 +1201,7 @@ function renderKPIs(rows){
   rows.forEach(r=>{
     const f = factorFor(r.reviewType);
     if(f === null){ unmappedCount++; unmappedTypes.add(r.reviewType); }
-    else totalEffortSec += f;
+    else totalEffortSec += r.vins * f;
   });
   const totalEffortHrs = (totalEffortSec/3600).toFixed(1);
   const effortSub = Object.keys(factorMap).length === 0
@@ -1214,7 +1214,7 @@ function renderKPIs(rows){
     { label:'Tasks (rows)', value: totalTasks.toLocaleString(), sub:'in selected range', accent:'var(--violet)' },
     { label:'Active reviewers', value: people, sub:'people with activity', accent:'#4fb8e8' },
     { label:'Avg VINs / task', value: avg, sub:'workload density', accent:'#ef6a6a' },
-    { label:'Est. effort (hrs)', value: totalEffortHrs, sub: effortSub, accent:'#c98cff' },
+    { label:'Total effort (hrs)', value: totalEffortHrs, sub: effortSub, accent:'#c98cff' },
   ];
   document.getElementById('kpiRow').innerHTML = cards.map(c=>`
     <div class="kpi" style="--kpi-accent:${c.accent}">
