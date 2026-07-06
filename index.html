@@ -1007,8 +1007,11 @@ function getFilteredRows(opts={}){
     if(enterprise && r.enterprise !== enterprise) return false;
     if(rooftop && r.rooftop !== rooftop) return false;
     if(review && r.reviewType !== review) return false;
-    if(start && r.date && r.date < start) return false;
-    if(end && r.date && r.date > end) return false;
+    // A row with no recognizable date can't be placed on the timeline, so once a date
+    // range is actually applied it must be excluded — otherwise it silently "passes"
+    // every range check and inflates totals that the daily chart correctly leaves out.
+    if(start && (!r.date || r.date < start)) return false;
+    if(end && (!r.date || r.date > end)) return false;
     return true;
   });
 }
