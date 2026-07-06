@@ -383,6 +383,7 @@
         <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
           <div class="preset-group">
             <button class="preset-btn" data-preset="7">7D</button>
+            <button class="preset-btn" data-preset="15">15D</button>
             <button class="preset-btn" data-preset="30">30D</button>
             <button class="preset-btn" data-preset="90">3M</button>
           </div>
@@ -404,7 +405,13 @@
       <div class="card-head">
         <div>
           <h2>Leaderboard</h2>
-          <div class="hint">Ranked by VINs × Factor (effort-weighted score) — follows the date range filter above</div>
+          <div class="hint">Ranked by VINs × Factor (effort-weighted score) — click a name for a daily breakdown</div>
+        </div>
+        <div class="preset-group">
+          <button class="preset-btn" data-preset="7">7D</button>
+          <button class="preset-btn" data-preset="15">15D</button>
+          <button class="preset-btn" data-preset="30">30D</button>
+          <button class="preset-btn" data-preset="90">3M</button>
         </div>
       </div>
       <div class="lb-summary" id="leaderboardSummary"></div>
@@ -543,7 +550,7 @@
       <button class="modal-close" id="personModalClose">&times;</button>
     </div>
     <div class="modal-summary" id="personModalSummary"></div>
-    <div class="chart-box" style="height:260px;">
+    <div class="chart-box" style="height:320px;">
       <canvas id="personModalChart"></canvas>
       <div class="empty-state" id="personModalChartEmpty" style="display:none; position:absolute; inset:0; align-items:center; justify-content:center;"></div>
     </div>
@@ -576,6 +583,29 @@ function colorFor(str, i){ return PALETTE[i % PALETTE.length]; }
 
 // Custom plugin (no external dependency): draws the numeric value above each point
 // on line-type datasets only (bars stay clean; tooltips already cover bar values).
+// Simple bar-only label plugin for single-series charts (e.g. the person detail modal)
+const barValueLabelPlugin = {
+  id: 'barValueLabels',
+  afterDatasetsDraw(chart){
+    const { ctx } = chart;
+    const meta = chart.getDatasetMeta(0);
+    const dataset = chart.data.datasets[0];
+    if(!dataset) return;
+    meta.data.forEach((el, idx)=>{
+      const value = dataset.data[idx];
+      if(value === null || value === undefined) return;
+      const text = typeof value === 'number' ? value.toLocaleString() : String(value);
+      ctx.save();
+      ctx.font = '600 10px "JetBrains Mono", monospace';
+      ctx.fillStyle = '#35d0a0';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(text, el.x, el.y - 6);
+      ctx.restore();
+    });
+  }
+};
+
 const lineValueLabelPlugin = {
   id: 'lineValueLabels',
   afterDatasetsDraw(chart){
@@ -583,37 +613,49 @@ const lineValueLabelPlugin = {
     const visibleIndexes = chart.data.datasets
       .map((_, i)=> i)
       .filter(i => !chart.getDatasetMeta(i).hidden);
+    if(!visibleIndexes.length) return;
 
-    // With all 4 series showing at once, permanent on-chart labels get unreadable —
-    // rely on the hover tooltip for exact values in that case. Numbers are drawn
-    // directly on the chart only once the person isolates a single metric via the
-    // legend (click a chip), when there's no competing series to collide with.
-    if(visibleIndexes.length !== 1) return;
+    const numPoints = chart.data.labels.length;
+    ctx.save();
+    ctx.font = '600 10px "JetBrains Mono", monospace';
 
-    const i = visibleIndexes[0];
-    const dataset = chart.data.datasets[i];
-    const meta = chart.getDatasetMeta(i);
-    const isBar = dataset.type === 'bar';
-    const color = isBar ? '#35d0a0' : (dataset.borderColor || '#e7eaf2');
+    // For every date column, gather the label candidates from every visible series,
+    // then stack them from the topmost point downward so none of them overlap —
+    // regardless of how close the underlying values happen to be.
+    for(let idx = 0; idx < numPoints; idx++){
+      const candidates = visibleIndexes.map(i=>{
+        const dataset = chart.data.datasets[i];
+        const meta = chart.getDatasetMeta(i);
+        const el = meta.data[idx];
+        const value = dataset.data[idx];
+        if(value === null || value === undefined || !el) return null;
+        const isBar = dataset.type === 'bar';
+        return {
+          x: el.x, y: el.y,
+          color: isBar ? '#35d0a0' : (dataset.borderColor || '#e7eaf2'),
+          text: typeof value === 'number' ? value.toLocaleString() : String(value)
+        };
+      }).filter(Boolean);
 
-    meta.data.forEach((el)=>{
-      const idx = meta.data.indexOf(el);
-      const value = dataset.data[idx];
-      if(value === null || value === undefined) return;
-      const text = typeof value === 'number' ? value.toLocaleString() : String(value);
-      const x = el.x;
-      const y = el.y - (isBar ? 8 : 10);
-      ctx.save();
-      ctx.font = '600 11px "JetBrains Mono", monospace';
-      const textWidth = ctx.measureText(text).width;
-      ctx.fillStyle = 'rgba(9,12,18,0.8)';
-      ctx.fillRect(x - textWidth/2 - 4, y - 12, textWidth + 8, 15);
-      ctx.fillStyle = color;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'bottom';
-      ctx.fillText(text, x, y);
-      ctx.restore();
-    });
+      // topmost (smallest y = highest on screen) placed first, each subsequent
+      // label forced further up if it would otherwise collide with the one above it
+      candidates.sort((a,b)=> a.y - b.y);
+      const labelH = 14;
+      let ceiling = null; // the lowest y the next label is allowed to reach
+      candidates.forEach(c=>{
+        let bottomY = c.y - 7;
+        if(ceiling !== null && bottomY > ceiling - 2) bottomY = ceiling - 2;
+        const textWidth = ctx.measureText(c.text).width;
+        ctx.fillStyle = 'rgba(9,12,18,0.8)';
+        ctx.fillRect(c.x - textWidth/2 - 4, bottomY - labelH + 1, textWidth + 8, labelH);
+        ctx.fillStyle = c.color;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(c.text, c.x, bottomY);
+        ceiling = bottomY - labelH;
+      });
+    }
+    ctx.restore();
   }
 };
 function initials(name){
@@ -1047,7 +1089,7 @@ function filterByPerson(person, isoDateStr){
     renderAll();
   }
 }
-[['leaderboardList', null], ['effortTableBody', null], ['perfTableBody', 'date']].forEach(([id, dateAttr])=>{
+[['effortTableBody', null], ['perfTableBody', 'date']].forEach(([id, dateAttr])=>{
   const el = document.getElementById(id);
   if(!el) return;
   el.addEventListener('click', (e)=>{
@@ -1090,6 +1132,12 @@ document.getElementById('perfList').addEventListener('click', (e)=>{
   const person = row.dataset.person;
   if(person) openPersonDetailModal(person);
 });
+document.getElementById('leaderboardList').addEventListener('click', (e)=>{
+  const row = e.target.closest('.clickable-row');
+  if(!row) return;
+  const person = row.dataset.person;
+  if(person) openPersonDetailModal(person);
+});
 
 function renderPersonDetailModal(person){
   // Ignores the top "Work done by" filter (we're already looking at one specific person),
@@ -1112,7 +1160,9 @@ function renderPersonDetailModal(person){
     byDate[key] = byDate[key] || { vins:0, tasks:0, reviewTypes:{} };
     byDate[key].vins += r.vins;
     byDate[key].tasks += 1;
-    byDate[key].reviewTypes[r.reviewType] = (byDate[key].reviewTypes[r.reviewType]||0) + 1;
+    byDate[key].reviewTypes[r.reviewType] = byDate[key].reviewTypes[r.reviewType] || { vins:0, tasks:0 };
+    byDate[key].reviewTypes[r.reviewType].vins += r.vins;
+    byDate[key].reviewTypes[r.reviewType].tasks += 1;
   });
   const dateKeys = Object.keys(byDate).filter(k=>k !== 'unknown').sort();
   const hasUnknown = byDate['unknown'] !== undefined;
@@ -1136,29 +1186,32 @@ function renderPersonDetailModal(person){
       },
       options:{
         responsive:true, maintainAspectRatio:false,
+        layout:{ padding:{ top:20 } },
         plugins:{
           legend:{ display:false },
           tooltip:{ backgroundColor:'#171c27', borderColor:'#232a39', borderWidth:1, titleColor:'#e7eaf2', bodyColor:'#99a1b8', padding:10 }
         },
         scales:{
-          x:{ grid:{ color:'rgba(255,255,255,0.03)' }, ticks:{ color:'#5c6478', font:{ size:10, family:'JetBrains Mono' }, maxRotation:0, autoSkip:true } },
-          y:{ grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#5c6478', font:{ size:10, family:'JetBrains Mono' } }, beginAtZero:true, title:{ display:true, text:'VINs', color:'#5c6478', font:{ size:10, family:'JetBrains Mono' } } }
+          x:{ grid:{ color:'rgba(255,255,255,0.03)' }, ticks:{ color:'#5c6478', font:{ size:9.5, family:'JetBrains Mono' }, autoSkip:false, maxRotation:60, minRotation:60 } },
+          y:{ grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#5c6478', font:{ size:10, family:'JetBrains Mono' } }, beginAtZero:true, suggestedMax: Math.max(1, ...dateKeys.map(d=>byDate[d].vins)) * 1.15, title:{ display:true, text:'VINs', color:'#5c6478', font:{ size:10, family:'JetBrains Mono' } } }
         }
-      }
+      },
+      plugins:[barValueLabelPlugin]
     });
   }
 
   const allKeys = hasUnknown ? [...dateKeys, 'unknown'] : dateKeys;
   tbody.innerHTML = allKeys.map(k=>{
     const d = byDate[k];
-    const reviewEntries = Object.entries(d.reviewTypes).sort((a,b)=>b[1]-a[1]);
-    const topReview = reviewEntries[0][0];
-    const extra = reviewEntries.length > 1 ? ` +${reviewEntries.length - 1}` : '';
+    const breakdown = Object.entries(d.reviewTypes)
+      .sort((a,b)=> b[1].vins - a[1].vins)
+      .map(([rt, v])=> `${escapeHtml(rt)} (${v.vins.toLocaleString()})`)
+      .join(', ');
     return `<tr>
       <td>${k === 'unknown' ? '<span style="color:var(--text-faint)">Unknown date</span>' : fmtDate(new Date(k))}</td>
       <td><span class="vin-chip">${d.vins.toLocaleString()}</span></td>
       <td>${d.tasks}</td>
-      <td>${escapeHtml(topReview)}${extra}</td>
+      <td>${breakdown}</td>
     </tr>`;
   }).join('');
 }
@@ -1234,7 +1287,7 @@ function renderWorkloadChart(rows){
   if(hintEl){
     hintEl.textContent = (undated > 0
       ? `Bar = VINs/day · Lines = Impacted VINs, Tasks, Effort (hrs) · ${undated} row(s) skipped (unrecognized date)`
-      : 'Bar = VINs/day · Lines = Impacted VINs, Tasks, Effort (hrs)') + ' · click a bar to drill into that day · click a legend chip to isolate a metric and see its exact numbers';
+      : 'Bar = VINs/day · Lines = Impacted VINs, Tasks, Effort (hrs)') + ' · click a bar to drill into that day · click a legend chip to isolate one metric';
   }
 
   const byDate = {};
@@ -1754,7 +1807,7 @@ function renderLeaderboard(rows){
   const max = list.length ? list[0].scoreHrs : 1;
   const rankColors = ['#f0c419', '#c9d1e0', '#d98c4a'];
   listEl.innerHTML = list.map((d,i)=>`
-    <div class="lb-row clickable-row" data-person="${escapeHtml(d.person)}" title="Filter by ${escapeHtml(d.person)}">
+    <div class="lb-row clickable-row" data-person="${escapeHtml(d.person)}" title="View daily breakdown for ${escapeHtml(d.person)}">
       <div class="lb-rank" style="background:${rankColors[i] || 'var(--surface-2)'}; color:${i<3 ? '#0a0d13' : 'var(--text-dim)'}; border:${i<3 ? 'none' : '1px solid var(--border)'}">${i+1}</div>
       <div class="lb-person">
         <div class="lb-name" title="${escapeHtml(d.person)}">${d.person}</div>
