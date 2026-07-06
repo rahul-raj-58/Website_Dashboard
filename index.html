@@ -444,19 +444,6 @@
       </div>
     </div>
 
-    <div class="card" style="grid-column:1 / -1; --card-accent:#4fb8e8;">
-      <div class="card-head">
-        <div>
-          <h2>QC frequency by enterprise</h2>
-          <div class="hint" id="qcFreqHint">Daily count of tasks with review type "QC", one line per enterprise — click a line or legend entry to filter</div>
-        </div>
-      </div>
-      <div class="chart-box" style="height:300px;">
-        <canvas id="qcFreqChart"></canvas>
-        <div class="empty-state" id="qcFreqChartEmpty" style="display:none; position:absolute; inset:0; align-items:center; justify-content:center;"></div>
-      </div>
-    </div>
-
     <div class="card" style="grid-column:1 / -1; --card-accent:#e0c25a;">
       <div class="card-head">
         <div>
@@ -467,55 +454,6 @@
       <div class="lb-summary" id="qcLbSummary"></div>
       <div id="qcLbList"></div>
       <button class="btn" id="qcLbMoreBtn" style="display:none; margin-top:16px;">View all enterprises</button>
-    </div>
-
-    <div class="card" style="grid-column:1 / -1; --card-accent:#c98cff;">
-      <div class="card-head">
-        <div>
-          <h2>Performance by person — effort weighted</h2>
-          <div class="hint">Estimated effort = Σ factor(review type) across each person's tasks — click headers to sort</div>
-        </div>
-      </div>
-      <div class="table-wrap">
-        <table id="effortTable">
-          <thead>
-            <tr>
-              <th data-key="person">Person <span class="arrow"></span></th>
-              <th data-key="tasks">Tasks <span class="arrow"></span></th>
-              <th data-key="vins">VINs <span class="arrow"></span></th>
-              <th data-key="effortHrs">Est. effort (hrs) <span class="arrow"></span></th>
-              <th data-key="effortPerTask">Avg sec / task <span class="arrow"></span></th>
-              <th data-key="unmapped">Unmapped tasks <span class="arrow"></span></th>
-            </tr>
-          </thead>
-          <tbody id="effortTableBody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="card" style="grid-column:1 / -1;">
-      <div class="card-head">
-        <div>
-          <h2>Daily task log</h2>
-          <div class="hint">One row per person, per day — click headers to sort</div>
-        </div>
-      </div>
-      <div class="table-wrap">
-        <table id="perfTable">
-          <thead>
-            <tr>
-              <th data-key="date">Date <span class="arrow"></span></th>
-              <th data-key="person">Work done by <span class="arrow"></span></th>
-              <th data-key="tasks">Tasks (rows) <span class="arrow"></span></th>
-              <th data-key="vins">VINs <span class="arrow"></span></th>
-              <th data-key="impacted">Impacted VINs <span class="arrow"></span></th>
-              <th data-key="topReview">Top review type <span class="arrow"></span></th>
-              <th data-key="effortMin">Est. effort (min) <span class="arrow"></span></th>
-            </tr>
-          </thead>
-          <tbody id="perfTableBody"></tbody>
-        </table>
-      </div>
     </div>
   </div>
 
@@ -731,12 +669,11 @@ let libStatus = { papa:false, chart:false, flatpickr:false };
 ========================================================= */
 let rawRows = [];        // all parsed rows
 let lastSyncTime = null;
-let charts = { workload:null, reviewEffort:null, qcFrequency:null };
+let charts = { workload:null, reviewEffort:null };
 let factorMap = {};       // reviewType (lowercased) -> factor seconds
 let factorRawRows = [];   // raw parsed rows from the factor sheet, for diagnostics
 let factorSheetError = null;
-let effortSort = { key:'effortHrs', dir:'desc' };
-let sort = { key:'date', dir:'desc' };
+
 let fp = null;
 
 /* =========================================================
@@ -1099,18 +1036,6 @@ function filterByPerson(person, isoDateStr){
     renderAll();
   }
 }
-[['effortTableBody', null], ['perfTableBody', 'date']].forEach(([id, dateAttr])=>{
-  const el = document.getElementById(id);
-  if(!el) return;
-  el.addEventListener('click', (e)=>{
-    const row = e.target.closest('.clickable-row');
-    if(!row || !el.contains(row)) return;
-    const person = row.dataset.person;
-    if(!person) return;
-    const dateStr = dateAttr ? row.dataset[dateAttr] : null;
-    filterByPerson(person, dateStr || null);
-  });
-});
 
 /* ---------- Person detail modal: daily VINs breakdown for one person ---------- */
 let personModalChart = null;
@@ -1259,11 +1184,8 @@ function renderAll(){
   renderWorkloadChart(rows);
   renderPerformance(rows);
   renderReviewEffortChart(rows);
-  renderQcFrequencyChart();
   renderQcFrequencyLeaderboard();
-  renderEffortTable(rows);
   renderLeaderboard(rows);
-  renderTable(rows);
 }
 
 /* ---------- KPIs ---------- */
@@ -1438,103 +1360,6 @@ document.querySelectorAll('.preset-btn').forEach(btn=>{
   btn.addEventListener('click', ()=> applyDateRangePreset(parseInt(btn.dataset.preset, 10)));
 });
 
-/* ---------- QC frequency by enterprise, daily trend ---------- */
-function renderQcFrequencyChart(){
-  const hintEl = document.getElementById('qcFreqHint');
-  const ctx = document.getElementById('qcFreqChart');
-  if(typeof Chart === 'undefined'){
-    renderEmptyCanvas(ctx, 'Chart library unavailable — try Sync now, or reload the page');
-    return;
-  }
-
-  // Always scoped to review type "QC" specifically, regardless of the top Review Type filter —
-  // this card answers one fixed question (how often QC happens, by enterprise), so forcing that
-  // filter avoids a confusing empty chart if someone has a different review type selected above.
-  const base = getFilteredRows({ ignoreReview:true }).filter(r => r.date && normalizeKey(r.reviewType) === 'qc');
-
-  if(!base.length){
-    if(hintEl) hintEl.textContent = "No rows with review type \"QC\" in the current filters (date range / enterprise / rooftop / person still apply)";
-    renderEmptyCanvas(ctx, 'No QC activity in the current filters');
-    return;
-  }
-
-  // Count QC rows per day per enterprise; keep the top 8 enterprises by total volume, group the rest as "Other"
-  const totalsByEnterprise = {};
-  base.forEach(r=>{ totalsByEnterprise[r.enterprise] = (totalsByEnterprise[r.enterprise]||0) + 1; });
-  const topEnterprises = Object.entries(totalsByEnterprise).sort((a,b)=>b[1]-a[1]).slice(0,8).map(e=>e[0]);
-  const hasOther = Object.keys(totalsByEnterprise).length > topEnterprises.length;
-
-  const byDateEnterprise = {};
-  base.forEach(r=>{
-    const day = isoDate(r.date);
-    const series = topEnterprises.includes(r.enterprise) ? r.enterprise : 'Other';
-    byDateEnterprise[day] = byDateEnterprise[day] || {};
-    byDateEnterprise[day][series] = (byDateEnterprise[day][series]||0) + 1;
-  });
-
-  const dates = Object.keys(byDateEnterprise).sort();
-  const seriesNames = hasOther ? [...topEnterprises, 'Other'] : topEnterprises;
-  const labels = dates.map(d=>fmtDate(new Date(d)));
-
-  if(hintEl){
-    hintEl.textContent = `${base.length} QC task(s) across ${Object.keys(totalsByEnterprise).length} enterprise(s) — click a line or legend entry to filter by enterprise`;
-  }
-
-  document.getElementById('qcFreqChartEmpty').style.display = 'none';
-  ctx.style.cursor = 'pointer';
-  if(charts.qcFrequency) charts.qcFrequency.destroy();
-
-  charts.qcFrequency = new Chart(ctx, {
-    type:'line',
-    data:{
-      labels,
-      datasets: seriesNames.map((name,i)=>({
-        label:name,
-        data: dates.map(d => (byDateEnterprise[d][name] || 0)),
-        borderColor: name === 'Other' ? '#5c6478' : colorFor(name,i),
-        backgroundColor:'transparent',
-        borderWidth:2, pointRadius:2.5, tension:.3,
-        pointBackgroundColor: name === 'Other' ? '#5c6478' : colorFor(name,i)
-      }))
-    },
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      interaction:{ mode:'index', intersect:false },
-      onClick:(evt, elements, chart)=>{
-        const points = chart.getElementsAtEventForMode(evt, 'nearest', { intersect:true }, false);
-        if(!points.length) return;
-        const name = chart.data.datasets[points[0].datasetIndex].label;
-        applyQcEnterpriseFilter(name);
-      },
-      plugins:{
-        legend:{
-          position:'bottom', labels:{ color:'#99a1b8', font:{ size:11, family:'Inter' }, boxWidth:9, boxHeight:9, padding:12 },
-          onClick:(evt, legendItem)=> applyQcEnterpriseFilter(legendItem.text)
-        },
-        tooltip:{
-          backgroundColor:'#171c27', borderColor:'#232a39', borderWidth:1,
-          titleColor:'#e7eaf2', bodyColor:'#99a1b8', padding:10,
-          titleFont:{ family:'JetBrains Mono', size:11 }, bodyFont:{ family:'Inter', size:12 }
-        }
-      },
-      scales:{
-        x:{ grid:{ color:'rgba(255,255,255,0.03)' }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' }, maxRotation:0, autoSkip:true } },
-        y:{ grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' } }, beginAtZero:true, title:{ display:true, text:'QC tasks / day', color:'#5c6478', font:{ size:10, family:'JetBrains Mono' } } }
-      }
-    }
-  });
-}
-
-function applyQcEnterpriseFilter(enterpriseName){
-  if(enterpriseName === 'Other') return; // not a real, selectable enterprise
-  const sel = document.getElementById('enterpriseFilter');
-  const opt = [...sel.options].find(o=>o.value === enterpriseName);
-  if(!opt) return;
-  sel.value = enterpriseName;
-  const qcOpt = [...document.getElementById('reviewFilter').options].find(o=>normalizeKey(o.value) === 'qc');
-  if(qcOpt) document.getElementById('reviewFilter').value = qcOpt.value;
-  renderAll();
-}
 function applyEnterpriseFilter(enterpriseName){
   const sel = document.getElementById('enterpriseFilter');
   const opt = [...sel.options].find(o=>o.value === enterpriseName);
@@ -1841,136 +1666,6 @@ function renderLeaderboard(rows){
 }
 
 /* ---------- Performance by person, effort-weighted ---------- */
-function computeEffortByPerson(rows){
-  const byPerson = {};
-  rows.forEach(r=>{
-    byPerson[r.person] = byPerson[r.person] || { tasks:0, vins:0, effortSec:0, unmapped:0 };
-    const p = byPerson[r.person];
-    p.tasks += 1;
-    p.vins += r.vins;
-    const f = factorFor(r.reviewType);
-    if(f === null) p.unmapped += 1; else p.effortSec += f;
-  });
-  return Object.entries(byPerson).map(([person, d]) => ({
-    person,
-    tasks: d.tasks,
-    vins: d.vins,
-    unmapped: d.unmapped,
-    effortHrs: +(d.effortSec/3600).toFixed(2),
-    effortPerTask: d.tasks ? Math.round(d.effortSec/d.tasks) : 0
-  }));
-}
-
-function renderEffortTable(rows){
-  const list = computeEffortByPerson(rows);
-  list.sort((a,b)=>{
-    let va = a[effortSort.key], vb = b[effortSort.key];
-    if(typeof va === 'string'){ va = va.toLowerCase(); vb = vb.toLowerCase(); }
-    if(va < vb) return effortSort.dir === 'asc' ? -1 : 1;
-    if(va > vb) return effortSort.dir === 'asc' ? 1 : -1;
-    return 0;
-  });
-
-  const tbody = document.getElementById('effortTableBody');
-  if(!list.length){ tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No activity in this range</div></td></tr>'; return; }
-  tbody.innerHTML = list.map((d,i)=>`
-    <tr class="clickable-row" data-person="${escapeHtml(d.person)}" title="Filter by ${escapeHtml(d.person)}">
-      <td>
-        <div class="person-pill">
-          <div class="avatar" style="background:${colorFor(d.person,i)}">${initials(d.person)}</div>
-          ${d.person}
-        </div>
-      </td>
-      <td>${d.tasks}</td>
-      <td><span class="vin-chip">${d.vins}</span></td>
-      <td>${d.effortHrs.toFixed(2)}</td>
-      <td>${d.effortPerTask}</td>
-      <td>${d.unmapped ? `<span class="vin-chip amber">${d.unmapped}</span>` : '—'}</td>
-    </tr>
-  `).join('');
-
-  document.querySelectorAll('#effortTable thead th').forEach(th=>{
-    const arrow = th.querySelector('.arrow');
-    if(arrow) arrow.textContent = th.dataset.key === effortSort.key ? (effortSort.dir === 'asc' ? '↑' : '↓') : '';
-  });
-}
-
-document.addEventListener('click', (e)=>{
-  const th = e.target.closest('#effortTable thead th');
-  if(!th) return;
-  const k = th.dataset.key;
-  if(effortSort.key === k) effortSort.dir = effortSort.dir === 'asc' ? 'desc' : 'asc';
-  else { effortSort.key = k; effortSort.dir = 'desc'; }
-  renderEffortTable(getFilteredRows());
-});
-
-/* ---------- Daily task table ---------- */
-function renderTable(rows){
-  const key = r => `${r.date ? isoDate(r.date) : 'unknown'}__${r.person}`;
-  const grouped = {};
-  rows.forEach(r=>{
-    const k = key(r);
-    if(!grouped[k]) grouped[k] = { date:r.date, person:r.person, tasks:0, vins:0, impacted:0, reviewTypes:{} };
-    grouped[k].tasks += 1;
-    grouped[k].vins += r.vins;
-    grouped[k].impacted += r.impacted;
-    grouped[k].reviewTypes[r.reviewType] = (grouped[k].reviewTypes[r.reviewType]||0) + 1;
-  });
-  let list = Object.values(grouped).map(g=>{
-    const effortSec = Object.entries(g.reviewTypes).reduce((sum, [rt, count])=>{
-      const f = factorFor(rt);
-      return sum + (f === null ? 0 : f * count);
-    }, 0);
-    return {
-      ...g,
-      topReview: Object.entries(g.reviewTypes).sort((a,b)=>b[1]-a[1])[0][0],
-      effortMin: +(effortSec/60).toFixed(1)
-    };
-  });
-
-  list.sort((a,b)=>{
-    let va = a[sort.key], vb = b[sort.key];
-    if(sort.key === 'date'){ va = a.date ? a.date.getTime() : -Infinity; vb = b.date ? b.date.getTime() : -Infinity; }
-    if(typeof va === 'string'){ va = va.toLowerCase(); vb = vb.toLowerCase(); }
-    if(va < vb) return sort.dir === 'asc' ? -1 : 1;
-    if(va > vb) return sort.dir === 'asc' ? 1 : -1;
-    return 0;
-  });
-
-  const tbody = document.getElementById('perfTableBody');
-  if(!list.length){ tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">No rows match the current filters</div></td></tr>'; return; }
-  tbody.innerHTML = list.map((r,i)=>`
-    <tr class="clickable-row" data-person="${escapeHtml(r.person)}" ${r.date ? `data-date="${isoDate(r.date)}"` : ''} title="Filter by ${escapeHtml(r.person)}${r.date ? ' on ' + fmtDate(r.date) : ''}">
-      <td>${r.date ? fmtDate(r.date) : '<span style="color:var(--text-faint)">Unknown date</span>'}</td>
-      <td>
-        <div class="person-pill">
-          <div class="avatar" style="background:${colorFor(r.person,i)}">${initials(r.person)}</div>
-          ${r.person}
-        </div>
-      </td>
-      <td>${r.tasks}</td>
-      <td><span class="vin-chip">${r.vins}</span></td>
-      <td>${r.impacted ? `<span class="vin-chip amber">${r.impacted}</span>` : '—'}</td>
-      <td>${r.topReview}</td>
-      <td>${r.effortMin || '—'}</td>
-    </tr>
-  `).join('');
-
-  document.querySelectorAll('#perfTable thead th').forEach(th=>{
-    const arrow = th.querySelector('.arrow');
-    arrow.textContent = th.dataset.key === sort.key ? (sort.dir === 'asc' ? '↑' : '↓') : '';
-  });
-}
-
-document.querySelectorAll('#perfTable thead th').forEach(th=>{
-  th.addEventListener('click', ()=>{
-    const k = th.dataset.key;
-    if(sort.key === k) sort.dir = sort.dir === 'asc' ? 'desc' : 'asc';
-    else { sort.key = k; sort.dir = 'desc'; }
-    renderTable(getFilteredRows());
-  });
-});
-
 /* =========================================================
    INIT
 ========================================================= */
