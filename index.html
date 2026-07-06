@@ -169,6 +169,9 @@
   .chart-box.small{ height:230px; }
 
   .legend-chip{ display:flex; align-items:center; gap:6px; font-family:var(--mono); font-size:11px; color:var(--text-dim); }
+  .legend-toggle{ cursor:pointer; user-select:none; transition:opacity .15s ease, color .15s ease; padding:3px 6px; border-radius:6px; }
+  .legend-toggle:hover{ color:var(--text); background:var(--surface-hover); }
+  .legend-toggle.legend-off{ opacity:.35; text-decoration:line-through; }
   .legend-dot{ width:8px; height:8px; border-radius:2px; }
 
   table{ width:100%; border-collapse:collapse; font-size:12.5px; }
@@ -352,10 +355,10 @@
           <div class="hint" id="workloadHint">Bar = VINs/day · Lines = Impacted VINs, Tasks, Effort (hrs)</div>
         </div>
         <div style="display:flex; gap:14px;">
-          <span class="legend-chip"><span class="legend-dot" style="background:var(--teal)"></span>VINs / day</span>
-          <span class="legend-chip"><span class="legend-dot" style="background:#f0a740; border-radius:50%;"></span>Impacted VINs</span>
-          <span class="legend-chip"><span class="legend-dot" style="background:var(--violet); border-radius:50%;"></span>Tasks</span>
-          <span class="legend-chip"><span class="legend-dot" style="background:#ef6a6a; border-radius:50%;"></span>Effort (hrs)</span>
+          <span class="legend-chip legend-toggle" data-idx="0" title="Click to isolate this metric"><span class="legend-dot" style="background:var(--teal)"></span>VINs / day</span>
+          <span class="legend-chip legend-toggle" data-idx="1" title="Click to isolate this metric"><span class="legend-dot" style="background:#f0a740; border-radius:50%;"></span>Impacted VINs</span>
+          <span class="legend-chip legend-toggle" data-idx="2" title="Click to isolate this metric"><span class="legend-dot" style="background:var(--violet); border-radius:50%;"></span>Tasks</span>
+          <span class="legend-chip legend-toggle" data-idx="3" title="Click to isolate this metric"><span class="legend-dot" style="background:#ef6a6a; border-radius:50%;"></span>Effort (hrs)</span>
         </div>
       </div>
       <div class="chart-box">
@@ -508,6 +511,31 @@ const RESYNC_MS = 30 * 60 * 1000; // 30 minutes
 
 const PALETTE = ['#35d0a0', '#8c93ff', '#f0a740', '#ef6a6a', '#4fb8e8', '#c98cff', '#e0c25a', '#6de0c2'];
 function colorFor(str, i){ return PALETTE[i % PALETTE.length]; }
+
+// Custom plugin (no external dependency): draws the numeric value above each point
+// on line-type datasets only (bars stay clean; tooltips already cover bar values).
+const lineValueLabelPlugin = {
+  id: 'lineValueLabels',
+  afterDatasetsDraw(chart){
+    const { ctx } = chart;
+    chart.data.datasets.forEach((dataset, i)=>{
+      if(dataset.type !== 'line') return;
+      const meta = chart.getDatasetMeta(i);
+      if(meta.hidden) return;
+      meta.data.forEach((point, idx)=>{
+        const value = dataset.data[idx];
+        if(value === null || value === undefined) return;
+        ctx.save();
+        ctx.font = '600 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = dataset.borderColor || '#e7eaf2';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(typeof value === 'number' ? value.toLocaleString() : value, point.x, point.y - 8);
+        ctx.restore();
+      });
+    });
+  }
+};
 function initials(name){
   if(!name) return '?';
   const parts = name.trim().split(/\s+/);
@@ -1099,8 +1127,10 @@ function renderWorkloadChart(rows){
         y1:{ position:'right', grid:{ display:false }, ticks:{ color:'#5c6478', font:{ size:10.5, family:'JetBrains Mono' } }, beginAtZero:true, title:{ display:true, text:'Tasks', color:'#5c6478', font:{ size:10, family:'JetBrains Mono' } } },
         y2:{ position:'right', display:false, beginAtZero:true } // dedicated scale for Effort (hrs) so its magnitude never squashes Tasks
       }
-    }
+    },
+    plugins:[lineValueLabelPlugin]
   });
+  document.querySelectorAll('.legend-toggle').forEach(c=>c.classList.remove('legend-off'));
 }
 
 function setDateRangeToSingleDay(iso){
@@ -1108,6 +1138,24 @@ function setDateRangeToSingleDay(iso){
   const d = new Date(iso + 'T00:00:00');
   fp.setDate([d, d], true); // true = fire onChange -> renderAll
 }
+
+/* ---------- Workload chart legend: click a chip to isolate that metric (click again to restore all) ---------- */
+function isolateWorkloadDataset(idx){
+  const chart = charts.workload;
+  if(!chart) return;
+  const n = chart.data.datasets.length;
+  const metas = Array.from({length:n}, (_,i)=>chart.getDatasetMeta(i));
+  const onlyThisVisible = metas.every((m,i)=> i===idx ? !m.hidden : !!m.hidden);
+  metas.forEach((m,i)=>{ m.hidden = onlyThisVisible ? false : (i !== idx); });
+  chart.update();
+  document.querySelectorAll('.legend-toggle').forEach(chip=>{
+    const i = parseInt(chip.dataset.idx, 10);
+    chip.classList.toggle('legend-off', !!metas[i].hidden);
+  });
+}
+document.querySelectorAll('.legend-toggle').forEach(chip=>{
+  chip.addEventListener('click', ()=> isolateWorkloadDataset(parseInt(chip.dataset.idx, 10)));
+});
 
 /* ---------- QC frequency by enterprise, daily trend ---------- */
 function renderQcFrequencyChart(){
