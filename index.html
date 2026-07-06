@@ -285,6 +285,24 @@
   .debug-toggle{ font-family:var(--mono); font-size:11px; color:var(--text-faint); background:none; border:none; cursor:pointer; text-decoration:underline; text-underline-offset:3px; }
   .debug-toggle:hover{ color:var(--text-dim); }
 
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(5,7,11,0.72); backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px);
+    display:none; align-items:center; justify-content:center; z-index:100; padding:24px;
+  }
+  .modal-overlay.show{ display:flex; }
+  .modal-box{
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg);
+    padding:28px; width:100%; max-width:760px; max-height:85vh; overflow:auto;
+    box-shadow:0 24px 64px rgba(0,0,0,0.55);
+  }
+  .modal-head{ display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:4px; gap:12px; }
+  .modal-eyebrow{ font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-faint); margin-bottom:4px; }
+  .modal-head h3{ font-family:var(--disp); font-size:21px; font-weight:600; }
+  .modal-close{ background:var(--surface-2); border:1px solid var(--border); color:var(--text-dim); cursor:pointer; font-size:16px; line-height:1; width:30px; height:30px; border-radius:8px; flex-shrink:0; }
+  .modal-close:hover{ color:var(--text); background:var(--surface-hover); }
+  .modal-summary{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); margin:14px 0 18px 0; }
+  .modal-footer{ margin-top:18px; display:flex; justify-content:flex-end; }
+
   .scanline{
     position:absolute; left:0; right:0; top:0; height:2px;
     background:linear-gradient(90deg, transparent, var(--teal), transparent);
@@ -398,7 +416,7 @@
       <div class="card-head">
         <div>
           <h2>Performance by person</h2>
-          <div class="hint">Total VINs handled, filtered range</div>
+          <div class="hint">Total VINs handled, filtered range · click a name for a daily breakdown</div>
         </div>
       </div>
       <div class="lb-summary" id="perfSummary"></div>
@@ -515,6 +533,34 @@
   <div id="debugBody">No sync yet.</div>
 </div>
 
+<div class="modal-overlay" id="personModalOverlay">
+  <div class="modal-box">
+    <div class="modal-head">
+      <div>
+        <div class="modal-eyebrow">Daily breakdown</div>
+        <h3 id="personModalName"></h3>
+      </div>
+      <button class="modal-close" id="personModalClose">&times;</button>
+    </div>
+    <div class="modal-summary" id="personModalSummary"></div>
+    <div class="chart-box" style="height:260px;">
+      <canvas id="personModalChart"></canvas>
+      <div class="empty-state" id="personModalChartEmpty" style="display:none; position:absolute; inset:0; align-items:center; justify-content:center;"></div>
+    </div>
+    <div class="table-wrap" style="margin-top:18px; max-height:240px;">
+      <table id="personModalTable">
+        <thead>
+          <tr><th>Date</th><th>VINs</th><th>Tasks</th><th>Review types</th></tr>
+        </thead>
+        <tbody id="personModalTableBody"></tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="personModalFilterBtn">Filter dashboard to this person</button>
+    </div>
+  </div>
+</div>
+
 
 
 <script>
@@ -534,33 +580,39 @@ const lineValueLabelPlugin = {
   id: 'lineValueLabels',
   afterDatasetsDraw(chart){
     const { ctx } = chart;
-    // stagger each dataset's label a bit further from its point so crossing lines don't
-    // print numbers directly on top of one another
-    const offsetByIndex = [ -8, -10, -22, -34 ];
-    chart.data.datasets.forEach((dataset, i)=>{
-      const meta = chart.getDatasetMeta(i);
-      if(meta.hidden) return;
-      const isBar = dataset.type === 'bar';
-      const color = isBar ? '#35d0a0' : (dataset.borderColor || '#e7eaf2');
-      const offset = isBar ? -6 : (offsetByIndex[i] ?? -8);
-      meta.data.forEach((el, idx)=>{
-        const value = dataset.data[idx];
-        if(value === null || value === undefined) return;
-        const text = typeof value === 'number' ? value.toLocaleString() : String(value);
-        const x = el.x;
-        const y = (isBar ? el.y : el.y) + offset;
-        ctx.save();
-        ctx.font = '600 10px "JetBrains Mono", monospace';
-        const textWidth = ctx.measureText(text).width;
-        // translucent background pill so the number stays legible over bars/other lines
-        ctx.fillStyle = 'rgba(9,12,18,0.72)';
-        ctx.fillRect(x - textWidth/2 - 3, y - 11, textWidth + 6, 13);
-        ctx.fillStyle = color;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(text, x, y);
-        ctx.restore();
-      });
+    const visibleIndexes = chart.data.datasets
+      .map((_, i)=> i)
+      .filter(i => !chart.getDatasetMeta(i).hidden);
+
+    // With all 4 series showing at once, permanent on-chart labels get unreadable —
+    // rely on the hover tooltip for exact values in that case. Numbers are drawn
+    // directly on the chart only once the person isolates a single metric via the
+    // legend (click a chip), when there's no competing series to collide with.
+    if(visibleIndexes.length !== 1) return;
+
+    const i = visibleIndexes[0];
+    const dataset = chart.data.datasets[i];
+    const meta = chart.getDatasetMeta(i);
+    const isBar = dataset.type === 'bar';
+    const color = isBar ? '#35d0a0' : (dataset.borderColor || '#e7eaf2');
+
+    meta.data.forEach((el)=>{
+      const idx = meta.data.indexOf(el);
+      const value = dataset.data[idx];
+      if(value === null || value === undefined) return;
+      const text = typeof value === 'number' ? value.toLocaleString() : String(value);
+      const x = el.x;
+      const y = el.y - (isBar ? 8 : 10);
+      ctx.save();
+      ctx.font = '600 11px "JetBrains Mono", monospace';
+      const textWidth = ctx.measureText(text).width;
+      ctx.fillStyle = 'rgba(9,12,18,0.8)';
+      ctx.fillRect(x - textWidth/2 - 4, y - 12, textWidth + 8, 15);
+      ctx.fillStyle = color;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(text, x, y);
+      ctx.restore();
     });
   }
 };
@@ -995,7 +1047,7 @@ function filterByPerson(person, isoDateStr){
     renderAll();
   }
 }
-[['perfList', null], ['leaderboardList', null], ['effortTableBody', null], ['perfTableBody', 'date']].forEach(([id, dateAttr])=>{
+[['leaderboardList', null], ['effortTableBody', null], ['perfTableBody', 'date']].forEach(([id, dateAttr])=>{
   const el = document.getElementById(id);
   if(!el) return;
   el.addEventListener('click', (e)=>{
@@ -1007,6 +1059,110 @@ function filterByPerson(person, isoDateStr){
     filterByPerson(person, dateStr || null);
   });
 });
+
+/* ---------- Person detail modal: daily VINs breakdown for one person ---------- */
+let personModalChart = null;
+let currentModalPerson = null;
+
+function openPersonDetailModal(person){
+  currentModalPerson = person;
+  document.getElementById('personModalName').textContent = person;
+  document.getElementById('personModalOverlay').classList.add('show');
+  renderPersonDetailModal(person);
+}
+function closePersonDetailModal(){
+  document.getElementById('personModalOverlay').classList.remove('show');
+}
+document.getElementById('personModalClose').addEventListener('click', closePersonDetailModal);
+document.getElementById('personModalOverlay').addEventListener('click', (e)=>{
+  if(e.target.id === 'personModalOverlay') closePersonDetailModal();
+});
+document.addEventListener('keydown', (e)=>{
+  if(e.key === 'Escape') closePersonDetailModal();
+});
+document.getElementById('personModalFilterBtn').addEventListener('click', ()=>{
+  if(currentModalPerson){ filterByPerson(currentModalPerson); closePersonDetailModal(); }
+});
+
+document.getElementById('perfList').addEventListener('click', (e)=>{
+  const row = e.target.closest('.clickable-row');
+  if(!row) return;
+  const person = row.dataset.person;
+  if(person) openPersonDetailModal(person);
+});
+
+function renderPersonDetailModal(person){
+  // Ignores the top "Work done by" filter (we're already looking at one specific person),
+  // but still respects Enterprise, Rooftop, Review Type, and date range.
+  const rows = getFilteredRows({ ignorePerson:true }).filter(r => r.person === person);
+  const summaryEl = document.getElementById('personModalSummary');
+  const chartCtx = document.getElementById('personModalChart');
+  const tbody = document.getElementById('personModalTableBody');
+
+  if(!rows.length){
+    summaryEl.textContent = 'No activity in the current filters';
+    tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state">No data</div></td></tr>';
+    renderEmptyCanvas(chartCtx, 'No data for the current filters');
+    return;
+  }
+
+  const byDate = {};
+  rows.forEach(r=>{
+    const key = r.date ? isoDate(r.date) : 'unknown';
+    byDate[key] = byDate[key] || { vins:0, tasks:0, reviewTypes:{} };
+    byDate[key].vins += r.vins;
+    byDate[key].tasks += 1;
+    byDate[key].reviewTypes[r.reviewType] = (byDate[key].reviewTypes[r.reviewType]||0) + 1;
+  });
+  const dateKeys = Object.keys(byDate).filter(k=>k !== 'unknown').sort();
+  const hasUnknown = byDate['unknown'] !== undefined;
+
+  const totalVins = rows.reduce((s,r)=>s+r.vins,0);
+  summaryEl.textContent = `${rows.length} tasks · ${totalVins.toLocaleString()} VINs · ${dateKeys.length} active day(s)` + (hasUnknown ? ' · some rows have an unrecognized date' : '');
+
+  if(typeof Chart === 'undefined'){
+    renderEmptyCanvas(chartCtx, 'Chart library unavailable — try Sync now, or reload the page');
+  }else{
+    document.getElementById('personModalChartEmpty').style.display = 'none';
+    if(personModalChart) personModalChart.destroy();
+    personModalChart = new Chart(chartCtx, {
+      type:'bar',
+      data:{
+        labels: dateKeys.map(d=>fmtDate(new Date(d))),
+        datasets:[{
+          label:'VINs', data: dateKeys.map(d=>byDate[d].vins),
+          backgroundColor:'rgba(53,208,160,0.6)', borderRadius:4, maxBarThickness:30
+        }]
+      },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{ display:false },
+          tooltip:{ backgroundColor:'#171c27', borderColor:'#232a39', borderWidth:1, titleColor:'#e7eaf2', bodyColor:'#99a1b8', padding:10 }
+        },
+        scales:{
+          x:{ grid:{ color:'rgba(255,255,255,0.03)' }, ticks:{ color:'#5c6478', font:{ size:10, family:'JetBrains Mono' }, maxRotation:0, autoSkip:true } },
+          y:{ grid:{ color:'rgba(255,255,255,0.05)' }, ticks:{ color:'#5c6478', font:{ size:10, family:'JetBrains Mono' } }, beginAtZero:true, title:{ display:true, text:'VINs', color:'#5c6478', font:{ size:10, family:'JetBrains Mono' } } }
+        }
+      }
+    });
+  }
+
+  const allKeys = hasUnknown ? [...dateKeys, 'unknown'] : dateKeys;
+  tbody.innerHTML = allKeys.map(k=>{
+    const d = byDate[k];
+    const reviewEntries = Object.entries(d.reviewTypes).sort((a,b)=>b[1]-a[1]);
+    const topReview = reviewEntries[0][0];
+    const extra = reviewEntries.length > 1 ? ` +${reviewEntries.length - 1}` : '';
+    return `<tr>
+      <td>${k === 'unknown' ? '<span style="color:var(--text-faint)">Unknown date</span>' : fmtDate(new Date(k))}</td>
+      <td><span class="vin-chip">${d.vins.toLocaleString()}</span></td>
+      <td>${d.tasks}</td>
+      <td>${escapeHtml(topReview)}${extra}</td>
+    </tr>`;
+  }).join('');
+}
+
 document.getElementById('qcLbList').addEventListener('click', (e)=>{
   const row = e.target.closest('.clickable-row');
   if(!row) return;
@@ -1078,7 +1234,7 @@ function renderWorkloadChart(rows){
   if(hintEl){
     hintEl.textContent = (undated > 0
       ? `Bar = VINs/day · Lines = Impacted VINs, Tasks, Effort (hrs) · ${undated} row(s) skipped (unrecognized date)`
-      : 'Bar = VINs/day · Lines = Impacted VINs, Tasks, Effort (hrs)') + ' · click a bar to drill into that day';
+      : 'Bar = VINs/day · Lines = Impacted VINs, Tasks, Effort (hrs)') + ' · click a bar to drill into that day · click a legend chip to isolate a metric and see its exact numbers';
   }
 
   const byDate = {};
@@ -1549,7 +1705,7 @@ function renderPerformance(rows){
     summaryEl.textContent = `${rows.length} tasks · ${totalVins.toLocaleString()} VINs · ${list.length} ${list.length === 1 ? 'person' : 'people'} active`;
   }
   el.innerHTML = list.slice(0,8).map(([name, d], i)=>`
-    <div class="perf-row clickable-row" data-person="${escapeHtml(name)}" title="Filter by ${escapeHtml(name)}">
+    <div class="perf-row clickable-row" data-person="${escapeHtml(name)}" title="View daily breakdown for ${escapeHtml(name)}">
       <div class="perf-person">
         <div class="perf-name" title="${escapeHtml(name)}">${name}</div>
         <div class="perf-bar-track"><div class="perf-bar-fill" style="width:${Math.max(4,(d.vins/max*100))}%; background:${colorFor(name,i)}"></div></div>
