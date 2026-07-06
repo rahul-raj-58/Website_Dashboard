@@ -466,6 +466,7 @@
       </div>
       <div class="lb-summary" id="qcLbSummary"></div>
       <div id="qcLbList"></div>
+      <button class="btn" id="qcLbMoreBtn" style="display:none; margin-top:16px;">View all enterprises</button>
     </div>
 
     <div class="card" style="grid-column:1 / -1; --card-accent:#c98cff;">
@@ -560,6 +561,20 @@
     <div class="modal-footer">
       <button class="btn" id="personModalFilterBtn">Filter dashboard to this person</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="enterpriseModalOverlay">
+  <div class="modal-box">
+    <div class="modal-head">
+      <div>
+        <div class="modal-eyebrow">All enterprises</div>
+        <h3>Activity frequency</h3>
+      </div>
+      <button class="modal-close" id="enterpriseModalClose">&times;</button>
+    </div>
+    <div class="modal-summary" id="enterpriseModalSummary"></div>
+    <div id="enterpriseModalList" style="max-height:60vh; overflow:auto;"></div>
   </div>
 </div>
 
@@ -1530,9 +1545,30 @@ function applyEnterpriseFilter(enterpriseName){
 
 /* ---------- Enterprise activity frequency leaderboard: rank enterprises by DISTINCT active days
    (multiple rows on the same day for the same enterprise count once) ---------- */
+let lastEnterpriseFrequencyData = { ranked: [], rangeLabel: '', totalTasks: 0 };
+
+function renderEnterpriseFreqRow(d, i){
+  const rankColors = ['#f0c419', '#c9d1e0', '#d98c4a'];
+  const lastQcText = d.lastQcDate ? `Last QC: ${fmtDate(d.lastQcDate)}` : 'No QC yet';
+  return `
+    <div class="lb-row clickable-row" data-enterprise="${escapeHtml(d.enterprise)}" title="Filter by ${escapeHtml(d.enterprise)}">
+      <div class="lb-rank" style="background:${rankColors[i] || 'var(--surface-2)'}; color:${i<3 ? '#0a0d13' : 'var(--text-dim)'}; border:${i<3 ? 'none' : '1px solid var(--border)'}">${i+1}</div>
+      <div class="lb-person">
+        <div class="lb-name" title="${escapeHtml(d.enterprise)}">${d.enterprise}</div>
+        <div class="lb-bar-track"><div class="lb-bar-fill" style="width:${Math.max(4, d.frequency/d.maxFreq*100)}%; background:${colorFor(d.enterprise,i)}"></div></div>
+      </div>
+      <div class="lb-stats">
+        <div class="lb-stat-main">${d.frequency} ${d.frequency === 1 ? 'day' : 'days'}</div>
+        <div class="lb-stat-sub">${lastQcText} · ${d.qcVins.toLocaleString()} VINs QCed</div>
+      </div>
+    </div>
+  `;
+}
+
 function renderQcFrequencyLeaderboard(){
   const listEl = document.getElementById('qcLbList');
   const summaryEl = document.getElementById('qcLbSummary');
+  const moreBtn = document.getElementById('qcLbMoreBtn');
 
   // Counts ANY row for that enterprise on a given date — straight from the Enterprise Name
   // column, no review-type restriction. Respects every top filter as normal.
@@ -1541,41 +1577,70 @@ function renderQcFrequencyLeaderboard(){
   if(!base.length){
     listEl.innerHTML = '<div class="empty-state">No dated rows in the current filters</div>';
     summaryEl.textContent = '';
+    if(moreBtn) moreBtn.style.display = 'none';
     return;
   }
 
-  // Distinct active days per enterprise (dedup: one entry per calendar day, however many rows that day)
+  // Distinct active days per enterprise (dedup: one entry per calendar day, however many rows that day),
+  // plus QC-specific stats: most recent QC date and total VINs QC'd.
   const byEnterprise = {};
   base.forEach(r=>{
     const day = isoDate(r.date);
-    byEnterprise[r.enterprise] = byEnterprise[r.enterprise] || { days:new Set(), tasks:0 };
-    byEnterprise[r.enterprise].days.add(day);
-    byEnterprise[r.enterprise].tasks += 1;
+    byEnterprise[r.enterprise] = byEnterprise[r.enterprise] || { days:new Set(), lastQcDate:null, qcVins:0 };
+    const e = byEnterprise[r.enterprise];
+    e.days.add(day);
+    if(normalizeKey(r.reviewType) === 'qc'){
+      e.qcVins += r.vins;
+      if(!e.lastQcDate || r.date > e.lastQcDate) e.lastQcDate = r.date;
+    }
   });
 
   const ranked = Object.entries(byEnterprise)
-    .map(([enterprise, d]) => ({ enterprise, frequency: d.days.size, tasks: d.tasks }))
-    .sort((a,b)=> b.frequency - a.frequency || b.tasks - a.tasks);
-
-  const allDates = [...new Set(base.map(r=>isoDate(r.date)))].sort();
-  summaryEl.textContent = `${fmtDate(new Date(allDates[0]))} – ${fmtDate(new Date(allDates[allDates.length-1]))} · ${base.length} tasks · ${ranked.length} enterprise(s) active`;
+    .map(([enterprise, d]) => ({ enterprise, frequency: d.days.size, lastQcDate: d.lastQcDate, qcVins: d.qcVins }))
+    .sort((a,b)=> b.frequency - a.frequency || b.qcVins - a.qcVins);
 
   const maxFreq = ranked[0].frequency;
-  const rankColors = ['#f0c419', '#c9d1e0', '#d98c4a'];
-  listEl.innerHTML = ranked.map((d,i)=>`
-    <div class="lb-row clickable-row" data-enterprise="${escapeHtml(d.enterprise)}" title="Filter by ${escapeHtml(d.enterprise)}">
-      <div class="lb-rank" style="background:${rankColors[i] || 'var(--surface-2)'}; color:${i<3 ? '#0a0d13' : 'var(--text-dim)'}; border:${i<3 ? 'none' : '1px solid var(--border)'}">${i+1}</div>
-      <div class="lb-person">
-        <div class="lb-name" title="${escapeHtml(d.enterprise)}">${d.enterprise}</div>
-        <div class="lb-bar-track"><div class="lb-bar-fill" style="width:${Math.max(4, d.frequency/maxFreq*100)}%; background:${colorFor(d.enterprise,i)}"></div></div>
-      </div>
-      <div class="lb-stats">
-        <div class="lb-stat-main">${d.frequency} ${d.frequency === 1 ? 'day' : 'days'}</div>
-        <div class="lb-stat-sub">${d.tasks} ${d.tasks === 1 ? 'task' : 'tasks'}</div>
-      </div>
-    </div>
-  `).join('');
+  ranked.forEach(d=> d.maxFreq = maxFreq);
+
+  const allDates = [...new Set(base.map(r=>isoDate(r.date)))].sort();
+  const rangeLabel = `${fmtDate(new Date(allDates[0]))} – ${fmtDate(new Date(allDates[allDates.length-1]))}`;
+  summaryEl.textContent = `${rangeLabel} · ${base.length} tasks · ${ranked.length} enterprise(s) active`;
+
+  lastEnterpriseFrequencyData = { ranked, rangeLabel, totalTasks: base.length };
+
+  listEl.innerHTML = ranked.slice(0,5).map((d,i)=> renderEnterpriseFreqRow(d,i)).join('');
+
+  if(moreBtn){
+    if(ranked.length > 5){
+      moreBtn.style.display = 'inline-flex';
+      moreBtn.textContent = `View all ${ranked.length} enterprises`;
+    }else{
+      moreBtn.style.display = 'none';
+    }
+  }
 }
+
+/* ---------- "View all enterprises" modal ---------- */
+function openEnterpriseListModal(){
+  const { ranked, rangeLabel, totalTasks } = lastEnterpriseFrequencyData;
+  document.getElementById('enterpriseModalSummary').textContent = `${rangeLabel} · ${totalTasks} tasks · ${ranked.length} enterprise(s) active`;
+  document.getElementById('enterpriseModalList').innerHTML = ranked.map((d,i)=> renderEnterpriseFreqRow(d,i)).join('');
+  document.getElementById('enterpriseModalOverlay').classList.add('show');
+}
+function closeEnterpriseListModal(){
+  document.getElementById('enterpriseModalOverlay').classList.remove('show');
+}
+document.getElementById('qcLbMoreBtn').addEventListener('click', openEnterpriseListModal);
+document.getElementById('enterpriseModalClose').addEventListener('click', closeEnterpriseListModal);
+document.getElementById('enterpriseModalOverlay').addEventListener('click', (e)=>{
+  if(e.target.id === 'enterpriseModalOverlay') closeEnterpriseListModal();
+});
+document.getElementById('enterpriseModalList').addEventListener('click', (e)=>{
+  const row = e.target.closest('.clickable-row');
+  if(!row) return;
+  const enterprise = row.dataset.enterprise;
+  if(enterprise){ applyEnterpriseFilter(enterprise); closeEnterpriseListModal(); }
+});
 
 function baseChartOptions(){
   return {
